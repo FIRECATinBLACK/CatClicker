@@ -473,6 +473,8 @@ CursorProviderHealth CosmicCursorPositionProvider::healthSnapshot() const
         m_cursorSessionRefreshOutstanding.load(std::memory_order_relaxed);
     health.latestPositionCallbackMonotonicUs =
         m_latestPositionCallbackMonotonicUs.load(std::memory_order_relaxed);
+    health.latestRefreshRequestMonotonicUs =
+        m_latestRefreshRequestMonotonicUs.load(std::memory_order_relaxed);
     health.latestPublished = cursorSnapshot();
     return health;
 }
@@ -491,6 +493,7 @@ bool CosmicCursorPositionProvider::requestCursorSessionRefresh()
         return false;
     }
     m_cursorSessionGeneration.fetch_add(1, std::memory_order_acq_rel);
+    m_latestRefreshRequestMonotonicUs.store(monotonicTimeUs(), std::memory_order_relaxed);
     m_cursorSessionRefreshRequested = true;
     wakeWorker();
     return true;
@@ -499,6 +502,7 @@ bool CosmicCursorPositionProvider::requestCursorSessionRefresh()
 bool CosmicCursorPositionProvider::supersedeCursorSessionRefresh()
 {
     m_cursorSessionGeneration.fetch_add(1, std::memory_order_acq_rel);
+    m_latestRefreshRequestMonotonicUs.store(monotonicTimeUs(), std::memory_order_relaxed);
     m_cursorSessionRefreshOutstanding.store(true, std::memory_order_release);
     m_cursorSessionRefreshRequested.store(true, std::memory_order_release);
     wakeWorker();

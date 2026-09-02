@@ -50,6 +50,7 @@ struct CursorProviderHealth {
     quint64 positionAfterRecreateCount = 0;
     bool cursorSessionRefreshOutstanding = false;
     qint64 latestPositionCallbackMonotonicUs = 0;
+    qint64 latestRefreshRequestMonotonicUs = 0;
     CursorSnapshot latestPublished;
 };
 
@@ -156,6 +157,7 @@ private:
     std::atomic_bool m_healthProbeRequested = false;
     std::atomic_bool m_cursorSessionRefreshRequested = false;
     std::atomic<qint64> m_latestPositionCallbackMonotonicUs = 0;
+    std::atomic<qint64> m_latestRefreshRequestMonotonicUs = 0;
     int m_wakePipe[2] = {-1, -1};
     std::thread m_thread;
 

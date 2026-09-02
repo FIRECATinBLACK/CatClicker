@@ -43,8 +43,16 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
                  .arg(QSysInfo::productType(), QSysInfo::productVersion());
     lines << QStringLiteral("Session type: %1").arg(env.value(QStringLiteral("XDG_SESSION_TYPE"), QStringLiteral("unknown")));
     lines << QStringLiteral("Desktop: %1").arg(env.value(QStringLiteral("XDG_CURRENT_DESKTOP"), QStringLiteral("unknown")));
-    lines << QStringLiteral("Playback backend: %1").arg(selectedPlaybackBackend.isEmpty() ? QStringLiteral("none selected") : selectedPlaybackBackend);
-    lines << QStringLiteral("Reason: %1").arg(playbackReason.isEmpty() ? QStringLiteral("not evaluated yet") : playbackReason);
+    if (!selectedPlaybackBackend.isEmpty()) {
+        lines << QStringLiteral("Playback backend: %1").arg(selectedPlaybackBackend);
+        if (!playbackReason.isEmpty()) {
+            lines << QStringLiteral("Playback selection: %1").arg(playbackReason);
+        }
+    } else if (backend) {
+        lines << QStringLiteral("Playback backend: %1").arg(backend->statusText());
+    } else {
+        lines << QStringLiteral("Playback backend: not initialized");
+    }
 
     lines << QStringLiteral("RemoteDesktop portal: %1").arg(capabilities.remoteDesktopInterfaceAvailable ? QStringLiteral("available") : QStringLiteral("unavailable"));
     lines << QStringLiteral("RemoteDesktop version: %1").arg(capabilities.remoteDesktopVersion);
@@ -64,7 +72,7 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
     lines << QStringLiteral("ScreenCast metadata cursor recording: %1")
                  .arg((pipeWireDetected && cursorModes.metadata) ? QStringLiteral("possible on this compositor") : QStringLiteral("not available on this compositor"));
     lines << QStringLiteral("Focused Qt capture backend: %1").arg(qtFocusedCaptureDetected ? QStringLiteral("available") : QStringLiteral("unavailable"));
-    lines << QStringLiteral("Cursor tracker: %1").arg(cursorTrackerStatus);
+    lines << QStringLiteral("Cursor providers:\n%1").arg(cursorTrackerStatus);
     lines << QStringLiteral("Global input listener: %1").arg(globalInputMonitor.listenerStatusText());
     lines << QStringLiteral("Global hotkeys: %1").arg(globalInputMonitor.hotkeyStatusText());
     lines << QStringLiteral("Recording backend mode: %1").arg(globalInputMonitor.recordingBackendText());
@@ -72,10 +80,6 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
                  .arg(display.logicalWidth)
                  .arg(display.logicalHeight);
     lines << QStringLiteral("Monitor scale: %1").arg(display.scale, 0, 'f', 2);
-
-    if (backend) {
-        lines << QStringLiteral("Playback backend status: %1").arg(backend->statusText());
-    }
 
     lines << QStringLiteral("Physical evdev access: %1")
                  .arg(evdevInspector.hasAnyReadablePhysicalInputDevices() ? QStringLiteral("yes") : QStringLiteral("no"));

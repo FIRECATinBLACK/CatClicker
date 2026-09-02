@@ -217,6 +217,12 @@ public:
     ssize_t readBytes(int fd, void *buffer, size_t maxBytes, int *errorCode) override
     {
         std::lock_guard<std::mutex> locker(m_mutex);
+        if (m_forcedReadErrors.contains(fd)) {
+            if (errorCode) {
+                *errorCode = m_forcedReadErrors.take(fd);
+            }
+            return -1;
+        }
         QByteArray *source = byteQueueForFdLocked(fd);
         if (!source) {
             if (errorCode) {
@@ -242,7 +248,7 @@ public:
         std::unique_lock<std::mutex> locker(m_mutex);
         const auto hasReadyFd = [&]() {
             for (std::size_t i = 0; i < count; ++i) {
-                if (hasReadableBytesLocked(fds[i].fd)) {
+                if (hasReadableBytesLocked(fds[i].fd) || m_forcedRevents.value(fds[i].fd) != 0) {
                     return true;
                 }
             }
@@ -261,6 +267,7 @@ public:
             } else if (hasReadableBytesLocked(fds[i].fd)) {
                 fds[i].revents |= POLLIN;
             }
+            fds[i].revents |= m_forcedRevents.take(fds[i].fd);
             if (fds[i].revents != 0) {
                 ++readyCount;
             }
@@ -325,6 +332,34 @@ public:
         queueBytes(path, bytes.mid(firstChunkSize));
     }
 
+    void queuePollCondition(const QString &path, short condition)
+    {
+        std::lock_guard<std::mutex> locker(m_mutex);
+        const int fd = m_pathToFd.value(path, -1);
+        if (fd >= 0) {
+            m_forcedRevents[fd] |= condition;
+        }
+        m_cv.notify_all();
+    }
+
+    void queueReadError(const QString &path, int errorCode)
+    {
+        std::lock_guard<std::mutex> locker(m_mutex);
+        const int fd = m_pathToFd.value(path, -1);
+        if (fd >= 0) {
+            m_forcedReadErrors.insert(fd, errorCode);
+            m_forcedRevents[fd] |= POLLIN;
+        }
+        m_cv.notify_all();
+    }
+
+    void setDiscoveredDevices(const QList<EvdevDeviceInfo> &devices)
+    {
+        std::lock_guard<std::mutex> locker(m_mutex);
+        discoveredDevices = devices;
+        m_cv.notify_all();
+    }
+
 private:
     QByteArray *byteQueueForFdLocked(int fd)
     {
@@ -367,6 +402,8 @@ private:
     QHash<int, QByteArray> m_bytesByFd;
     QByteArray m_wakeBytes;
     QSet<int> m_closedFdSet;
+    QHash<int, short> m_forcedRevents;
+    QHash<int, int> m_forcedReadErrors;
 };
 
 class FakeCursorPositionProvider final : public CursorPositionProvider {
@@ -465,6 +502,10 @@ private slots:
     void globalInputMonitorPublishesRelativeX();
     void globalInputMonitorPublishesRelativeY();
     void globalInputMonitorCoalescesRelativeFloodWithoutLosingButton();
+    void globalInputMonitorMixedInputRemainsLive();
+    void globalInputMonitorReopensPointerAfterPollLoss();
+    void globalInputMonitorKeepsPointerAfterRecoverableReadError();
+    void globalInputMonitorSynDroppedSuppressesUntilReport();
     void evdevCaptureBackendTranslatesMouseButtons();
     void evdevCaptureBackendSerializesVerticalWheel();
     void evdevCaptureBackendSerializesHorizontalWheel();
@@ -481,6 +522,8 @@ private slots:
     void cosmicSamplerSupportsThreeRecordingsOnSameBackend();
     void cosmicSamplerIgnoresLateCompletionAndRecoversNextRecording();
     void cosmicSamplerDoesNotStallMidRecording();
+    void cosmicSamplerSuppressesStaleCoordinatesAndRecovers();
+    void cosmicSamplerLongActiveSessionKeepsProgressing();
     void evdevCaptureBackendDeduplicatesResolvedCursorPosition();
     void evdevCaptureBackendUsesAbsoluteCursorAnchorForClicks();
     void evdevCaptureBackendLeavesClickUnanchoredWithoutPosition();
@@ -1965,6 +2008,119 @@ void MacroCoreTests::globalInputMonitorCoalescesRelativeFloodWithoutLosingButton
     monitor.stopMonitoring();
 }
 
+void MacroCoreTests::globalInputMonitorMixedInputRemainsLive()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backend = fakeBackend.get();
+    const QString pointer = QStringLiteral("/dev/input/event-mixed-pointer");
+    const QString keyboard = QStringLiteral("/dev/input/event-mixed-keyboard");
+    backend->discoveredDevices = {
+        makeDevice(pointer, QStringLiteral("Pointer"), QStringLiteral("mouse"), true),
+        makeDevice(keyboard, QStringLiteral("Keyboard"), QStringLiteral("keyboard"), true)
+    };
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    monitor.setCaptureForwardingEnabled(true);
+    QVERIFY(monitor.startMonitoring());
+
+    for (int cycle = 0; cycle < 500; ++cycle) {
+        backend->queueInputEvent(pointer, makeInputEvent(EV_REL, cycle % 2 ? REL_X : REL_Y, 1));
+        backend->queueInputEvent(pointer, makeInputEvent(EV_KEY, BTN_LEFT, cycle % 7 == 0 ? 1 : 0));
+        backend->queueInputEvent(keyboard, makeInputEvent(EV_KEY, KEY_A, cycle % 2));
+        backend->queueInputEvent(keyboard, makeInputEvent(EV_KEY, KEY_B, cycle % 3 == 0 ? 1 : 0));
+    }
+    backend->queueInputEvent(pointer, makeInputEvent(EV_REL, REL_X, 1));
+
+    QTRY_VERIFY_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().pointerRelEventsRead >= 501, 5000);
+    const InputDeviceLifecycleHealth health = monitor.inputDeviceLifecycleHealthSnapshot();
+    QVERIFY(health.pointerButtonEventsRead >= 500);
+    QVERIFY(health.keyboardEventsRead >= 1000);
+    QCOMPARE(health.activePointerDevices, quint64(1));
+    QCOMPARE(health.activeKeyboardDevices, quint64(1));
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::globalInputMonitorReopensPointerAfterPollLoss()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backend = fakeBackend.get();
+    const QString pointer = QStringLiteral("/dev/input/event-reopen-pointer");
+    const EvdevDeviceInfo pointerDevice = makeDevice(pointer, QStringLiteral("Pointer"), QStringLiteral("mouse"), true);
+    const EvdevDeviceInfo keyboardDevice = makeDevice(QStringLiteral("/dev/input/event-reopen-keyboard"), QStringLiteral("Keyboard"), QStringLiteral("keyboard"), true);
+    const EvdevDeviceInfo virtualPointer = makeDevice(QStringLiteral("/dev/input/event-virtual-pointer"), QString::fromLatin1(VirtualDeviceIdentity::PointerName), QStringLiteral("mouse"), true, true);
+    backend->discoveredDevices = {pointerDevice, keyboardDevice, virtualPointer};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    monitor.setCaptureForwardingEnabled(true);
+    QVERIFY(monitor.startMonitoring());
+    backend->setDiscoveredDevices({keyboardDevice, virtualPointer});
+    backend->queuePollCondition(pointer, POLLHUP);
+
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().pointerDevicesRemoved, quint64(1), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().rescans >= 1, 3000);
+    QCOMPARE(monitor.inputDeviceLifecycleHealthSnapshot().activePointerDevices, quint64(0));
+    backend->setDiscoveredDevices({pointerDevice, keyboardDevice, virtualPointer});
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().pointerDevicesReopened, quint64(1), 3000);
+    QCOMPARE(std::count(backend->openedPaths.cbegin(), backend->openedPaths.cend(), pointer), 2);
+    QVERIFY(!backend->openedPaths.contains(QStringLiteral("/dev/input/event-virtual-pointer")));
+    backend->queueInputEvent(pointer, makeInputEvent(EV_REL, REL_X, 1));
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().pointerRelEventsRead, quint64(1), 3000);
+    const InputDeviceLifecycleHealth health = monitor.inputDeviceLifecycleHealthSnapshot();
+    QCOMPARE(health.devicePollHup, quint64(1));
+    QCOMPARE(health.pointerDevicesRemoved, quint64(1));
+    QCOMPARE(health.activePointerDevices, quint64(1));
+    QCOMPARE(health.activeKeyboardDevices, quint64(1));
+    QVERIFY(health.rescans >= 1);
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::globalInputMonitorKeepsPointerAfterRecoverableReadError()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backend = fakeBackend.get();
+    const QString pointer = QStringLiteral("/dev/input/event-eagain-pointer");
+    backend->discoveredDevices = {
+        makeDevice(pointer, QStringLiteral("Pointer"), QStringLiteral("mouse"), true)
+    };
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    monitor.setCaptureForwardingEnabled(true);
+    QVERIFY(monitor.startMonitoring());
+    backend->queueReadError(pointer, EAGAIN);
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().deviceReadEagain, quint64(1), 3000);
+    backend->queueInputEvent(pointer, makeInputEvent(EV_REL, REL_X, 1));
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().pointerRelEventsRead, quint64(1), 3000);
+    const InputDeviceLifecycleHealth health = monitor.inputDeviceLifecycleHealthSnapshot();
+    QCOMPARE(health.devicesRemoved, quint64(0));
+    QCOMPARE(health.activePointerDevices, quint64(1));
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::globalInputMonitorSynDroppedSuppressesUntilReport()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backend = fakeBackend.get();
+    const QString pointer = QStringLiteral("/dev/input/event-sync-pointer");
+    backend->discoveredDevices = {
+        makeDevice(pointer, QStringLiteral("Pointer"), QStringLiteral("mouse"), true)
+    };
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    QVector<GlobalInputEvent> events;
+    QObject::connect(&monitor, &GlobalInputMonitor::globalEventCaptured,
+                     [&](const GlobalInputEvent &event) { events.push_back(event); });
+    monitor.setCaptureForwardingEnabled(true);
+    QVERIFY(monitor.startMonitoring());
+    backend->queueInputEvent(pointer, makeInputEvent(EV_SYN, SYN_DROPPED, 0));
+    backend->queueInputEvent(pointer, makeInputEvent(EV_REL, REL_X, 1));
+    backend->queueInputEvent(pointer, makeInputEvent(EV_KEY, BTN_LEFT, 1));
+    backend->queueInputEvent(pointer, makeInputEvent(EV_SYN, SYN_REPORT, 0));
+    backend->queueInputEvent(pointer, makeInputEvent(EV_REL, REL_Y, 1));
+
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.inputDeviceLifecycleHealthSnapshot().syncRecoveries, quint64(1), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(events.size(), 1, 3000);
+    QCOMPARE(events.first().type, GlobalInputEventType::RelativeMotion);
+    QCOMPARE(events.first().code, static_cast<uint32_t>(REL_Y));
+    QCOMPARE(monitor.inputDeviceLifecycleHealthSnapshot().synDropped, quint64(1));
+    monitor.stopMonitoring();
+}
+
 void MacroCoreTests::evdevCaptureBackendTranslatesMouseButtons()
 {
     auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
@@ -2646,6 +2802,169 @@ void MacroCoreTests::cosmicSamplerDoesNotStallMidRecording()
     QTRY_VERIFY(std::any_of(captured.cbegin(), captured.cend(), [](const MacroEvent &event) {
         return event.type == MacroEventType::MouseButton && event.hasCursorAnchor;
     }));
+    backend.stopCapture();
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::cosmicSamplerLongActiveSessionKeepsProgressing()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backendPtr = fakeBackend.get();
+    const QString path = QStringLiteral("/dev/input/event43long-session");
+    backendPtr->discoveredDevices = {
+        makeDevice(path, QStringLiteral("Combined Keyboard Mouse"), QStringLiteral("mouse"), true)
+    };
+    CosmicCursorPositionProvider provider;
+    const CosmicCursorOutputMapping mapping{0, 0, 4096, 2160, 4096, 2160, 0};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    EvdevCaptureBackend backend(&monitor, &provider);
+    QVector<MacroEvent> captured;
+    QObject::connect(&backend, &EvdevCaptureBackend::eventCaptured,
+                     [&](const MacroEvent &event) { captured.push_back(event); });
+    QVERIFY(monitor.startMonitoring());
+    QVERIFY(backend.startCapture());
+
+    constexpr int generationCycles = 300;
+    quint64 expectedRequests = 0;
+    quint64 expectedSamples = 0;
+    for (int cycle = 0; cycle < generationCycles; ++cycle) {
+        backendPtr->queueInputEvent(path,
+            makeInputEvent(EV_REL, cycle % 2 == 0 ? REL_X : REL_Y, cycle % 7 + 1));
+        ++expectedRequests;
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, expectedRequests);
+
+        if (cycle % 25 == 0) {
+            for (int flood = 0; flood < 40; ++flood) {
+                backendPtr->queueInputEvent(path,
+                    makeInputEvent(EV_REL, flood % 2 == 0 ? REL_X : REL_Y, 1));
+            }
+            backendPtr->queueInputEvent(path, makeInputEvent(EV_KEY, KEY_A, cycle % 50 == 0 ? 1 : 0));
+        }
+        if (cycle == 60) {
+            backendPtr->queueInputEvent(path, makeInputEvent(EV_KEY, BTN_LEFT, 1));
+        } else if (cycle == 150) {
+            backendPtr->queueInputEvent(path, makeInputEvent(EV_KEY, BTN_LEFT, 0));
+        }
+        if (cycle > generationCycles * 2 / 3 && cycle % 40 == 0) {
+            backendPtr->queueInputEvent(path, makeInputEvent(EV_KEY, BTN_RIGHT, 1));
+            backendPtr->queueInputEvent(path, makeInputEvent(EV_KEY, BTN_RIGHT, 0));
+        }
+
+        const quint64 generation = provider.healthSnapshot().cursorSessionGeneration;
+        provider.applyCursorSessionRecreated(generation);
+        provider.applyEnterForGeneration(generation);
+        const QPointF position(cycle + 1.0, (cycle * 3) % 2000 + 1.0);
+        provider.applyPositionForGeneration(position, mapping, generation);
+        ++expectedSamples;
+        QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, expectedSamples);
+
+        if (backend.samplerHealthSnapshot().refreshOutstanding) {
+            ++expectedRequests;
+            QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, expectedRequests);
+            const quint64 followUpGeneration = provider.healthSnapshot().cursorSessionGeneration;
+            provider.applyCursorSessionRecreated(followUpGeneration);
+            provider.applyEnterForGeneration(followUpGeneration);
+            provider.applyPositionForGeneration(position + QPointF(0.25, 0.25), mapping,
+                                                followUpGeneration);
+            ++expectedSamples;
+            QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, expectedSamples);
+        }
+
+        const CursorSamplerHealth health = backend.samplerHealthSnapshot();
+        QCOMPARE(health.refreshCompletions, expectedSamples);
+        QVERIFY(!health.refreshOutstanding);
+        QVERIFY(!health.movementPending);
+        QVERIFY(!health.followUpPending);
+        if ((cycle + 1) % 50 == 0) {
+            const RelativeMotionHealth relative = monitor.relativeMotionHealthSnapshot();
+            QVERIFY(relative.acceptedTriggers >= static_cast<quint64>(cycle + 1));
+            QVERIFY(relative.deliveredTriggers >= static_cast<quint64>(cycle + 1));
+            QVERIFY(!relative.payloadPending);
+            QVERIFY(!relative.deliveryPosted);
+        }
+    }
+
+    const auto finalThirdBegin = captured.cbegin() + captured.size() * 2 / 3;
+    QVERIFY(std::any_of(finalThirdBegin, captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::MouseMove;
+    }));
+    QVERIFY(std::any_of(finalThirdBegin, captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::MouseButton && event.hasCursorAnchor;
+    }));
+    QVERIFY(std::any_of(captured.cbegin(), captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::Key;
+    }));
+    QCOMPARE(backend.samplerHealthSnapshot().samplesDelivered, expectedSamples);
+    backend.stopCapture();
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::cosmicSamplerSuppressesStaleCoordinatesAndRecovers()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *backendPtr = fakeBackend.get();
+    const QString path = QStringLiteral("/dev/input/event43stale-position");
+    backendPtr->discoveredDevices = {
+        makeDevice(path, QStringLiteral("USB Mouse"), QStringLiteral("mouse"), true)
+    };
+    CosmicCursorPositionProvider provider;
+    const CosmicCursorOutputMapping mapping{0, 0, 1920, 1080, 1920, 1080, 0};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    EvdevCaptureBackend backend(&monitor, &provider);
+    QVector<MacroEvent> captured;
+    QObject::connect(&backend, &EvdevCaptureBackend::eventCaptured,
+                     [&](const MacroEvent &event) { captured.push_back(event); });
+    QVERIFY(monitor.startMonitoring());
+    QVERIFY(backend.startCapture());
+
+    const QPointF positionA(640.0, 360.0);
+    backendPtr->queueInputEvent(path, makeInputEvent(EV_REL, REL_X, 1));
+    QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, quint64(1));
+    quint64 generation = provider.healthSnapshot().cursorSessionGeneration;
+    provider.applyCursorSessionRecreated(generation);
+    provider.applyEnterForGeneration(generation);
+    provider.applyPositionForGeneration(positionA, mapping, generation);
+    QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, quint64(1));
+
+    constexpr int identicalCompletions = 64;
+    for (int sample = 0; sample < identicalCompletions; ++sample) {
+        backendPtr->queueInputEvent(path,
+            makeInputEvent(EV_REL, sample % 2 == 0 ? REL_X : REL_Y, 1));
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests,
+                     static_cast<quint64>(sample + 2));
+        generation = provider.healthSnapshot().cursorSessionGeneration;
+        provider.applyCursorSessionRecreated(generation);
+        provider.applyEnterForGeneration(generation);
+        provider.applyPositionForGeneration(positionA, mapping, generation);
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshCompletions,
+                     static_cast<quint64>(sample + 2));
+    }
+
+    CursorSamplerHealth health = backend.samplerHealthSnapshot();
+    QCOMPARE(health.resolvedSampleAttempts, quint64(identicalCompletions + 1));
+    QCOMPARE(health.resolvedCoordinateChanges, quint64(1));
+    QCOMPARE(health.resolvedIdenticalCoordinates, quint64(identicalCompletions));
+    QCOMPARE(health.duplicateMoveSuppressions, quint64(identicalCompletions));
+    QCOMPARE(health.consecutiveIdenticalResolvedSamples, quint64(identicalCompletions));
+    QCOMPARE(health.samplesDelivered, quint64(1));
+    QVERIFY(health.lastDuplicateSuppressionMonotonicUs > 0);
+
+    const QPointF positionB(900.0, 700.0);
+    backendPtr->queueInputEvent(path, makeInputEvent(EV_REL, REL_X, 1));
+    QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests,
+                 quint64(identicalCompletions + 2));
+    generation = provider.healthSnapshot().cursorSessionGeneration;
+    provider.applyCursorSessionRecreated(generation);
+    provider.applyEnterForGeneration(generation);
+    provider.applyPositionForGeneration(positionB, mapping, generation);
+    QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, quint64(2));
+
+    health = backend.samplerHealthSnapshot();
+    QCOMPARE(health.resolvedCoordinateChanges, quint64(2));
+    QCOMPARE(health.consecutiveIdenticalResolvedSamples, quint64(0));
+    QCOMPARE(captured.size(), 2);
+    QCOMPARE(QPointF(captured.at(0).x, captured.at(0).y), positionA);
+    QCOMPARE(QPointF(captured.at(1).x, captured.at(1).y), positionB);
     backend.stopCapture();
     monitor.stopMonitoring();
 }

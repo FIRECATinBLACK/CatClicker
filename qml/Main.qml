@@ -1252,6 +1252,14 @@ ApplicationWindow {
                             }
                         }
 
+                        Text {
+                            width: parent.width
+                            text: "This shareable report uses a privacy allowlist. Review the complete preview before copying it. It excludes recorded input, mouse coordinates, device names, and personal paths."
+                            color: Theme.textMuted
+                            font.pixelSize: 13
+                            wrapMode: Text.Wrap
+                        }
+
                         Rectangle {
                             width: parent.width
                             implicitHeight: 280

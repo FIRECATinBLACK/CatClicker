@@ -867,6 +867,15 @@ void ApplicationController::traceCursorHealth(const QString &phase) const
                .arg(input.rescans)
                .arg(input.synDropped)
                .arg(input.syncRecoveries);
+    qInfo().noquote()
+        << QStringLiteral("[stale-recovery] phase=%1 samplerRequests=%2 providerRequests=%3 completions=%4 failures=%5 outstanding=%6 lastRequestMonotonicUs=%7")
+               .arg(phase)
+               .arg(sampler.staleHardRefreshRequests)
+               .arg(health.staleHardRefreshRequests)
+               .arg(health.staleHardRefreshCompletions)
+               .arg(health.staleHardRefreshFailures)
+               .arg(health.staleHardRefreshOutstanding ? 1 : 0)
+               .arg(health.lastStaleHardRefreshMonotonicUs);
 }
 
 void ApplicationController::stop()

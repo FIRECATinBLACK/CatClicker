@@ -22,6 +22,7 @@ struct CursorSamplerHealth {
     quint64 resolvedIdenticalCoordinates = 0;
     quint64 duplicateMoveSuppressions = 0;
     quint64 consecutiveIdenticalResolvedSamples = 0;
+    quint64 staleHardRefreshRequests = 0;
     quint64 samplesDelivered = 0;
     quint64 deferredButtonEvents = 0;
     quint64 deferredScrollEvents = 0;
@@ -60,7 +61,7 @@ private:
     void handleGlobalEvent(const CatClicker::GlobalInputEvent &event);
     void handleSampledCursorPosition(const QPointF &position);
     void requestMovementSample(qint64 timestampUs, qint64 monotonicUs);
-    void emitResolvedPendingEvents(const QPointF &position);
+    bool emitResolvedPendingEvents(const QPointF &position);
     void flushPendingMouseEventsUnanchored();
     void resetSamplerState();
     void emitReleaseEventsForHeldState(qint64 timestampUs);
@@ -85,6 +86,7 @@ private:
     QPointF m_lastRecordedCursorPosition;
     bool m_hasLastRecordedCursorPosition = false;
     quint64 m_duplicateTraceCount = 0;
+    quint64 m_resolvedAttemptsAtLastHardRefresh = 0;
 };
 
 }

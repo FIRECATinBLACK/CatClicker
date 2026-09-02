@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible CatClicker problem
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste event-level input traces, recorded keys, typed text, or mouse coordinates publicly. Preview the safe CatClicker debug report first.
+  - type: input
+    id: version
+    attributes: {label: CatClicker version, placeholder: "0.1.0 or commit"}
+    validations: {required: true}
+  - type: input
+    id: system
+    attributes: {label: Linux system, description: "Distribution, desktop environment, and Wayland or X11 session type"}
+    validations: {required: true}
+  - type: textarea
+    id: tried
+    attributes: {label: What did you try?}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected behavior}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: Actual behavior}
+    validations: {required: true}
+  - type: dropdown
+    id: reproducibility
+    attributes: {label: Reproducibility, options: [Every time, Often, Sometimes, Once]}
+    validations: {required: true}
+  - type: textarea
+    id: report
+    attributes: {label: Safe debug report, description: "Paste the previewed shareable report. Remove anything you do not want public."}
+  - type: textarea
+    id: extras
+    attributes: {label: Optional logs or screenshots, description: "Do not include sensitive input or private application content."}

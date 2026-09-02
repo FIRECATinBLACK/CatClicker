@@ -29,6 +29,7 @@ core.*
 *.log
 *.strace
 *-diagnostics.txt
+/performance-*.txt
 /benchmark-results/
 /performance-results/
 

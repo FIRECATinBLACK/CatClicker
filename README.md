@@ -30,16 +30,13 @@ The current COSMIC implementation has been host tested for keyboard and mouse re
 
 ## Build requirements
 
-On Pop!_OS 24.04:
+On Pop!_OS 24.04, install the verified build and QML runtime dependencies with:
 
 ```bash
-sudo apt update
-sudo apt install build-essential cmake ninja-build pkg-config \
-  qt6-base-dev qt6-declarative-dev libpipewire-0.3-dev libspa-0.2-dev \
-  libei-dev libevdev-dev libwayland-dev wayland-protocols
+./scripts/install-dev-deps.sh
 ```
 
-CatClicker needs Qt 6.4 or newer. Direct COSMIC cursor support also needs `wayland-scanner` and the ext image capture protocol XML files described in [Development](docs/DEVELOPMENT.md).
+The script installs the compiler and CMake tools, Qt 6 development packages and QML runtime modules, PipeWire and input development libraries, Wayland headers, `wayland-scanner`, and wayland-protocols. CatClicker needs Qt 6.4 or newer. Direct COSMIC cursor support uses the vendored ext image capture protocol XML described in [Development](docs/DEVELOPMENT.md).
 
 ## Build, install, and run
 
@@ -55,7 +52,7 @@ After installation, launch `CatClicker` from the desktop menu or run `$HOME/.loc
 
 ## Input permissions
 
-Do not run the GUI as root and do not make input devices globally writable. Run `./scripts/setup-input-permissions.sh` once. The helper installs udev rules using `uaccess` for `/dev/uinput` and eligible physical input devices. CatClicker can request the helper through Polkit or show a manual command. It never collects a password and does not prompt when access is already correct.
+Do not run the GUI as root and do not make input devices globally writable. Run `./scripts/setup-input-permissions.sh` once, or let CatClicker request its installed copy through Polkit. The helper installs udev rules using `uaccess` for `/dev/uinput` and eligible physical input devices. CatClicker never collects a password and does not prompt when access is already correct.
 
 ## Record and play
 

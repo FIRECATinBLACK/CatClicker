@@ -6,6 +6,6 @@
 
 ## GitHub mark
 
-`assets/third_party/github-mark.svg` is derived from the GitHub Octicons mark distributed by GitHub, Inc. under the MIT License. Source: https://github.com/primer/octicons
+`assets/third_party/github-mark.svg` and `assets/third_party/github-mark-light.svg` are color variants derived from the GitHub Octicons mark distributed by GitHub, Inc. under the MIT License. Source: https://github.com/primer/octicons
 
 The mark identifies the fixed CatClicker GitHub repository link. GitHub and the GitHub logo are trademarks of GitHub, Inc. Their inclusion does not imply endorsement.

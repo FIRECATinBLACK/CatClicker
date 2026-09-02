@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-cd "$HOME/CatClicker" || exit $?
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit $?
 
 echo "========== BUILD =========="
 cmake --build build -j4 || exit $?

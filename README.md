@@ -81,9 +81,10 @@ Macro text is parsed as data and is never passed to a shell. Replayed keyboard i
 
 Support for additional compositor backends, tests, documentation fixes, and focused code improvements is welcome.
 
-## AI assistance
+## AI disclosure
 
-CatClicker has been developed with substantial assistance from AI coding tools. Changes are reviewed, tested, and validated on the target environment before they are accepted.
+CatClicker has been developed with assistance from AI coding tools for researching and debugging. Changes are reviewed, tested, and validated on the target environment before they are accepted.
+Any assets have been human drawn with love.
 
 ## License
 

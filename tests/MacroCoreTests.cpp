@@ -523,6 +523,9 @@ private slots:
     void cosmicSamplerIgnoresLateCompletionAndRecoversNextRecording();
     void cosmicSamplerDoesNotStallMidRecording();
     void cosmicSamplerSuppressesStaleCoordinatesAndRecovers();
+    void cosmicSamplerHardRefreshRecoversWithGenerationIsolation();
+    void cosmicSamplerHardRefreshNeverFabricatesAnchors();
+    void cosmicSamplerHardRefreshIsRateLimited();
     void cosmicSamplerLongActiveSessionKeepsProgressing();
     void evdevCaptureBackendDeduplicatesResolvedCursorPosition();
     void evdevCaptureBackendUsesAbsoluteCursorAnchorForClicks();
@@ -2948,6 +2951,8 @@ void MacroCoreTests::cosmicSamplerSuppressesStaleCoordinatesAndRecovers()
     QCOMPARE(health.consecutiveIdenticalResolvedSamples, quint64(identicalCompletions));
     QCOMPARE(health.samplesDelivered, quint64(1));
     QVERIFY(health.lastDuplicateSuppressionMonotonicUs > 0);
+    QCOMPARE(health.staleHardRefreshRequests, quint64(0));
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshRequests, quint64(0));
 
     const QPointF positionB(900.0, 700.0);
     backendPtr->queueInputEvent(path, makeInputEvent(EV_REL, REL_X, 1));
@@ -2965,6 +2970,156 @@ void MacroCoreTests::cosmicSamplerSuppressesStaleCoordinatesAndRecovers()
     QCOMPARE(captured.size(), 2);
     QCOMPARE(QPointF(captured.at(0).x, captured.at(0).y), positionA);
     QCOMPARE(QPointF(captured.at(1).x, captured.at(1).y), positionB);
+    backend.stopCapture();
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::cosmicSamplerHardRefreshRecoversWithGenerationIsolation()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *input = fakeBackend.get();
+    const QString path = QStringLiteral("/dev/input/event-stale-hard-refresh");
+    input->discoveredDevices = {makeDevice(path, QStringLiteral("Combined Input"), QStringLiteral("mouse"), true)};
+    CosmicCursorPositionProvider provider;
+    const CosmicCursorOutputMapping mapping{0, 0, 1920, 1080, 1920, 1080, 0};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    EvdevCaptureBackend backend(&monitor, &provider);
+    QVector<MacroEvent> captured;
+    QObject::connect(&backend, &EvdevCaptureBackend::eventCaptured,
+                     [&](const MacroEvent &event) { captured.push_back(event); });
+    QVERIFY(monitor.startMonitoring());
+    QVERIFY(backend.startCapture());
+
+    const QPointF positionA(400.0, 300.0);
+    const auto completeSample = [&](const QPointF &position) {
+        const quint64 generation = provider.healthSnapshot().cursorSessionGeneration;
+        provider.applyCursorSessionRecreated(generation);
+        provider.applyEnterForGeneration(generation);
+        provider.applyPositionForGeneration(position, mapping, generation);
+    };
+    input->queueInputEvent(path, makeInputEvent(EV_REL, REL_X, 1));
+    QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, quint64(1));
+    completeSample(positionA);
+    QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, quint64(1));
+
+    constexpr int staleThreshold = 128;
+    quint64 preHardGeneration = 0;
+    for (int sample = 0; sample < staleThreshold; ++sample) {
+        input->queueInputEvent(path, makeInputEvent(EV_REL, sample % 2 ? REL_X : REL_Y, 1));
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, static_cast<quint64>(sample + 2));
+        preHardGeneration = provider.healthSnapshot().cursorSessionGeneration;
+        completeSample(positionA);
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshCompletions, static_cast<quint64>(sample + 2));
+    }
+    QCOMPARE(backend.samplerHealthSnapshot().staleHardRefreshRequests, quint64(1));
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshRequests, quint64(1));
+    QVERIFY(provider.healthSnapshot().staleHardRefreshOutstanding);
+    QVERIFY(!provider.cursorSnapshot().valid);
+
+    input->queueInputEvent(path, makeInputEvent(EV_KEY, KEY_C, 1));
+    QTRY_VERIFY(std::any_of(captured.cbegin(), captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::Key && event.keyCode == KEY_C;
+    }));
+
+    provider.applyEnterForGeneration(preHardGeneration);
+    provider.applyPositionForGeneration(QPointF(800.0, 600.0), mapping, preHardGeneration);
+    QCOMPARE(backend.samplerHealthSnapshot().samplesDelivered, quint64(1));
+    QVERIFY(!provider.cursorSnapshot().valid);
+
+    const quint64 hardGeneration = provider.healthSnapshot().cursorSessionGeneration;
+    provider.applyCursorSessionRecreated(hardGeneration);
+    provider.applyEnterForGeneration(hardGeneration);
+    const QPointF positionB(900.0, 700.0);
+    provider.applyPositionForGeneration(positionB, mapping, hardGeneration);
+    QTRY_COMPARE(backend.samplerHealthSnapshot().samplesDelivered, quint64(2));
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshCompletions, quint64(1));
+    QVERIFY(!provider.healthSnapshot().staleHardRefreshOutstanding);
+    QCOMPARE(backend.samplerHealthSnapshot().consecutiveIdenticalResolvedSamples, quint64(0));
+    QVERIFY(std::any_of(captured.cbegin(), captured.cend(), [&](const MacroEvent &event) {
+        return event.type == MacroEventType::MouseMove && QPointF(event.x, event.y) == positionB;
+    }));
+    backend.stopCapture();
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::cosmicSamplerHardRefreshNeverFabricatesAnchors()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *input = fakeBackend.get();
+    const QString path = QStringLiteral("/dev/input/event-stale-never-recovers");
+    input->discoveredDevices = {makeDevice(path, QStringLiteral("Combined Input"), QStringLiteral("mouse"), true)};
+    CosmicCursorPositionProvider provider;
+    const CosmicCursorOutputMapping mapping{0, 0, 1920, 1080, 1920, 1080, 0};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    EvdevCaptureBackend backend(&monitor, &provider);
+    QVector<MacroEvent> captured;
+    QObject::connect(&backend, &EvdevCaptureBackend::eventCaptured,
+                     [&](const MacroEvent &event) { captured.push_back(event); });
+    QVERIFY(monitor.startMonitoring());
+    QVERIFY(backend.startCapture());
+    const QPointF positionA(500.0, 500.0);
+    for (int sample = 0; sample <= 128; ++sample) {
+        input->queueInputEvent(path, makeInputEvent(EV_REL, REL_X, 1));
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, static_cast<quint64>(sample + 1));
+        const quint64 generation = provider.healthSnapshot().cursorSessionGeneration;
+        provider.applyCursorSessionRecreated(generation);
+        provider.applyEnterForGeneration(generation);
+        provider.applyPositionForGeneration(positionA, mapping, generation);
+    }
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshRequests, quint64(1));
+    input->queueInputEvent(path, makeInputEvent(EV_KEY, BTN_LEFT, 1));
+    input->queueInputEvent(path, makeInputEvent(EV_REL, REL_WHEEL, 1));
+    input->queueInputEvent(path, makeInputEvent(EV_KEY, KEY_D, 1));
+    QTRY_VERIFY(std::any_of(captured.cbegin(), captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::Key && event.keyCode == KEY_D;
+    }));
+    backend.stopCapture();
+    QVERIFY(std::none_of(captured.cbegin(), captured.cend(), [](const MacroEvent &event) {
+        return event.type == MacroEventType::MouseButton || event.type == MacroEventType::Scroll;
+    }));
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshRequests, quint64(1));
+    monitor.stopMonitoring();
+}
+
+void MacroCoreTests::cosmicSamplerHardRefreshIsRateLimited()
+{
+    auto fakeBackend = std::make_unique<FakeGlobalInputBackend>();
+    FakeGlobalInputBackend *input = fakeBackend.get();
+    const QString path = QStringLiteral("/dev/input/event-stale-rate-limit");
+    input->discoveredDevices = {makeDevice(path, QStringLiteral("Pointer"), QStringLiteral("mouse"), true)};
+    CosmicCursorPositionProvider provider;
+    const CosmicCursorOutputMapping mapping{0, 0, 1920, 1080, 1920, 1080, 0};
+    GlobalInputMonitor monitor(std::move(fakeBackend));
+    EvdevCaptureBackend backend(&monitor, &provider);
+    QVERIFY(monitor.startMonitoring());
+    QVERIFY(backend.startCapture());
+    const QPointF positionA(600.0, 400.0);
+    quint64 firstRequestAttempt = 0;
+    bool observedSecondRequest = false;
+    for (int attempt = 0; attempt < 500 && !observedSecondRequest; ++attempt) {
+        input->queueInputEvent(path, makeInputEvent(EV_REL, attempt % 2 ? REL_X : REL_Y, 1));
+        QTRY_COMPARE(backend.samplerHealthSnapshot().refreshRequests, static_cast<quint64>(attempt + 1));
+        const quint64 generation = provider.healthSnapshot().cursorSessionGeneration;
+        provider.applyCursorSessionRecreated(generation);
+        provider.applyEnterForGeneration(generation);
+        provider.applyPositionForGeneration(positionA, mapping, generation);
+        const CursorSamplerHealth afterSample = backend.samplerHealthSnapshot();
+        if (afterSample.staleHardRefreshRequests == 1 && firstRequestAttempt == 0) {
+            firstRequestAttempt = afterSample.resolvedSampleAttempts;
+        } else if (afterSample.staleHardRefreshRequests == 2) {
+            QVERIFY(afterSample.resolvedSampleAttempts - firstRequestAttempt >= 256);
+            observedSecondRequest = true;
+        }
+        if (provider.healthSnapshot().staleHardRefreshOutstanding) {
+            const quint64 hardGeneration = provider.healthSnapshot().cursorSessionGeneration;
+            provider.applyCursorSessionRecreated(hardGeneration);
+            provider.applyEnterForGeneration(hardGeneration);
+            provider.applyPositionForGeneration(positionA, mapping, hardGeneration);
+        }
+    }
+    QVERIFY(observedSecondRequest);
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshRequests, quint64(2));
+    QCOMPARE(provider.healthSnapshot().staleHardRefreshCompletions, quint64(2));
     backend.stopCapture();
     monitor.stopMonitoring();
 }

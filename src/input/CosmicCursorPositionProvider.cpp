@@ -398,7 +398,13 @@ bool CosmicCursorPositionProvider::start(const MacroDisplayInfo &display, int ou
     m_cursorSessionRefreshOutstanding = false;
     m_healthProbeRequested = false;
     m_cursorSessionRefreshRequested = false;
+    m_captureSourceRefreshRequested = false;
+    m_staleHardRefreshOutstanding = false;
+    m_staleHardRefreshRequests = 0;
+    m_staleHardRefreshCompletions = 0;
+    m_staleHardRefreshFailures = 0;
     m_latestPositionCallbackMonotonicUs = 0;
+    m_lastStaleHardRefreshMonotonicUs = 0;
     setStatus(QStringLiteral("initializing"), QStringLiteral("Connecting to direct Wayland cursor metadata protocol."));
     m_thread = std::thread(&CosmicCursorPositionProvider::run, this, display);
     return true;
@@ -469,12 +475,18 @@ CursorProviderHealth CosmicCursorPositionProvider::healthSnapshot() const
     health.cursorSessionGeneration = m_cursorSessionGeneration.load(std::memory_order_relaxed);
     health.cursorSessionRecreateCount = m_cursorSessionRecreateCount.load(std::memory_order_relaxed);
     health.positionAfterRecreateCount = m_positionAfterRecreateCount.load(std::memory_order_relaxed);
+    health.staleHardRefreshRequests = m_staleHardRefreshRequests.load(std::memory_order_relaxed);
+    health.staleHardRefreshCompletions = m_staleHardRefreshCompletions.load(std::memory_order_relaxed);
+    health.staleHardRefreshFailures = m_staleHardRefreshFailures.load(std::memory_order_relaxed);
     health.cursorSessionRefreshOutstanding =
         m_cursorSessionRefreshOutstanding.load(std::memory_order_relaxed);
+    health.staleHardRefreshOutstanding = m_staleHardRefreshOutstanding.load(std::memory_order_relaxed);
     health.latestPositionCallbackMonotonicUs =
         m_latestPositionCallbackMonotonicUs.load(std::memory_order_relaxed);
     health.latestRefreshRequestMonotonicUs =
         m_latestRefreshRequestMonotonicUs.load(std::memory_order_relaxed);
+    health.lastStaleHardRefreshMonotonicUs =
+        m_lastStaleHardRefreshMonotonicUs.load(std::memory_order_relaxed);
     health.latestPublished = cursorSnapshot();
     return health;
 }
@@ -505,6 +517,25 @@ bool CosmicCursorPositionProvider::supersedeCursorSessionRefresh()
     m_latestRefreshRequestMonotonicUs.store(monotonicTimeUs(), std::memory_order_relaxed);
     m_cursorSessionRefreshOutstanding.store(true, std::memory_order_release);
     m_cursorSessionRefreshRequested.store(true, std::memory_order_release);
+    wakeWorker();
+    return true;
+}
+
+bool CosmicCursorPositionProvider::requestCaptureSourceRefresh()
+{
+    bool expected = false;
+    if (!m_staleHardRefreshOutstanding.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) {
+        return false;
+    }
+    m_cursorSessionGeneration.fetch_add(1, std::memory_order_acq_rel);
+    m_cursorSessionRefreshOutstanding.store(true, std::memory_order_release);
+    m_cursorSessionRefreshRequested.store(false, std::memory_order_release);
+    m_captureSourceRefreshRequested.store(true, std::memory_order_release);
+    m_staleHardRefreshRequests.fetch_add(1, std::memory_order_relaxed);
+    m_lastStaleHardRefreshMonotonicUs.store(monotonicTimeUs(), std::memory_order_relaxed);
+    m_cursorInside = false;
+    publishSnapshot({});
     wakeWorker();
     return true;
 }
@@ -601,6 +632,9 @@ void CosmicCursorPositionProvider::applyPositionForGeneration(
         m_positionAfterRecreateCount.fetch_add(1, std::memory_order_relaxed);
     }
     m_cursorSessionRefreshOutstanding.store(false, std::memory_order_release);
+    if (m_staleHardRefreshOutstanding.exchange(false, std::memory_order_acq_rel)) {
+        m_staleHardRefreshCompletions.fetch_add(1, std::memory_order_relaxed);
+    }
     trace(QStringLiteral("mapped logical position %1,%2").arg(logical.x()).arg(logical.y()));
     emit cursorPositionChanged(logical);
 }
@@ -626,6 +660,10 @@ void CosmicCursorPositionProvider::applyCursorSessionRecreated(quint64 generatio
 void CosmicCursorPositionProvider::applyStopped(const QString &reason)
 {
     m_stopRequested = true;
+    if (m_staleHardRefreshOutstanding.exchange(false, std::memory_order_acq_rel)) {
+        m_staleHardRefreshFailures.fetch_add(1, std::memory_order_relaxed);
+    }
+    m_cursorSessionRefreshOutstanding.store(false, std::memory_order_release);
     m_cursorInside = false;
     publishSnapshot({});
     {
@@ -709,7 +747,16 @@ void CosmicCursorPositionProvider::run(MacroDisplayInfo displayInfo)
         return;
     }
 
-    runtime->source = ext_output_image_capture_source_manager_v1_create_source(runtime->sourceManager, runtime->output);
+    const auto createSource = [&]() {
+        runtime->source = ext_output_image_capture_source_manager_v1_create_source(
+            runtime->sourceManager, runtime->output);
+        return runtime->source != nullptr;
+    };
+    if (!createSource()) {
+        applyStopped(QStringLiteral("Failed to create cursor capture source."));
+        destroyRuntime(runtime.get());
+        return;
+    }
     const auto createCursorSession = [&]() {
         runtime->cursorSession = ext_image_copy_capture_manager_v1_create_pointer_cursor_session(
             runtime->captureManager, runtime->source, runtime->pointer);
@@ -742,7 +789,26 @@ void CosmicCursorPositionProvider::run(MacroDisplayInfo displayInfo)
             }
         }
 
-        if (m_cursorSessionRefreshRequested.exchange(false, std::memory_order_acq_rel)) {
+        if (m_captureSourceRefreshRequested.exchange(false, std::memory_order_acq_rel)) {
+            m_cursorSessionRefreshRequested.store(false, std::memory_order_release);
+            if (runtime->cursorSession) {
+                ext_image_copy_capture_cursor_session_v1_destroy(runtime->cursorSession);
+                runtime->cursorSession = nullptr;
+            }
+            runtime->cursorSessionListenerData.reset();
+            if (runtime->source) {
+                ext_image_capture_source_v1_destroy(runtime->source);
+                runtime->source = nullptr;
+            }
+            m_cursorInside = false;
+            publishSnapshot({});
+            if (createSource() && createCursorSession()) {
+                applyCursorSessionRecreated(runtime->cursorSessionGeneration);
+            } else {
+                m_cursorSessionRefreshOutstanding.store(false, std::memory_order_release);
+                applyStopped(QStringLiteral("Failed to rebuild the cursor capture source."));
+            }
+        } else if (m_cursorSessionRefreshRequested.exchange(false, std::memory_order_acq_rel)) {
             if (runtime->cursorSession) {
                 ext_image_copy_capture_cursor_session_v1_destroy(runtime->cursorSession);
                 runtime->cursorSession = nullptr;

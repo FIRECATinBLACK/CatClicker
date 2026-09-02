@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr quint64 kStaleHardRefreshThreshold = 128;
+constexpr quint64 kStaleHardRefreshCooldownAttempts = 256;
+
 bool traceRecordingCursorEnabled()
 {
     static const bool enabled = qEnvironmentVariableIntValue("CATCLICKER_TRACE_RECORDING_CURSOR") == 1;
@@ -96,6 +99,7 @@ bool EvdevCaptureBackend::startCapture()
     m_lastRecordedCursorPosition = {};
     m_hasLastRecordedCursorPosition = false;
     m_duplicateTraceCount = 0;
+    m_resolvedAttemptsAtLastHardRefresh = 0;
     m_samplerHealth = {};
     m_samplerHealth.captureSessionNumber = ++m_captureSessionNumber;
     resetSamplerState();
@@ -312,7 +316,9 @@ void EvdevCaptureBackend::handleSampledCursorPosition(const QPointF &position)
     ++m_samplerHealth.refreshCompletions;
     m_samplerHealth.lastRefreshCompletionMonotonicUs = m_monitor->currentTimeUs();
     Q_ASSERT(m_hasCurrentMovement);
-    emitResolvedPendingEvents(position);
+    if (emitResolvedPendingEvents(position)) {
+        return;
+    }
 
     if (m_followUpRefreshRequired) {
         m_currentMovementTimestampUs = m_followUpMovementTimestampUs;
@@ -331,11 +337,42 @@ void EvdevCaptureBackend::handleSampledCursorPosition(const QPointF &position)
     }
 }
 
-void EvdevCaptureBackend::emitResolvedPendingEvents(const QPointF &position)
+bool EvdevCaptureBackend::emitResolvedPendingEvents(const QPointF &position)
 {
+    bool emitMovement = false;
+    if (m_hasCurrentMovement) {
+        ++m_samplerHealth.resolvedSampleAttempts;
+        const bool duplicate = m_hasLastRecordedCursorPosition
+            && position == m_lastRecordedCursorPosition;
+        if (duplicate) {
+            ++m_samplerHealth.resolvedIdenticalCoordinates;
+            ++m_samplerHealth.duplicateMoveSuppressions;
+            ++m_samplerHealth.consecutiveIdenticalResolvedSamples;
+            m_samplerHealth.lastDuplicateSuppressionMonotonicUs = m_monitor->currentTimeUs();
+            const bool cooldownComplete = m_samplerHealth.staleHardRefreshRequests == 0
+                || m_samplerHealth.resolvedSampleAttempts - m_resolvedAttemptsAtLastHardRefresh
+                    >= kStaleHardRefreshCooldownAttempts;
+            if (m_samplerHealth.consecutiveIdenticalResolvedSamples >= kStaleHardRefreshThreshold
+                && cooldownComplete && m_cosmicSamplerProvider
+                && m_cosmicSamplerProvider->requestCaptureSourceRefresh()) {
+                ++m_samplerHealth.staleHardRefreshRequests;
+                m_resolvedAttemptsAtLastHardRefresh = m_samplerHealth.resolvedSampleAttempts;
+                return true;
+            }
+        } else {
+            ++m_samplerHealth.resolvedCoordinateChanges;
+            m_samplerHealth.consecutiveIdenticalResolvedSamples = 0;
+            m_lastRecordedCursorPosition = position;
+            m_hasLastRecordedCursorPosition = true;
+            ++m_samplerHealth.samplesDelivered;
+            m_samplerHealth.lastDeliveredSampleMonotonicUs = m_monitor->currentTimeUs();
+            emitMovement = true;
+        }
+    }
+
     QVector<MacroEvent> resolved;
     resolved.reserve(m_pendingMouseEvents.size() + (m_hasCurrentMovement ? 1 : 0));
-    if (m_hasCurrentMovement) {
+    if (emitMovement) {
         resolved.push_back(MacroEvent::mouseMove(
             m_currentMovementTimestampUs, position.x(), position.y()));
     }
@@ -349,29 +386,11 @@ void EvdevCaptureBackend::emitResolvedPendingEvents(const QPointF &position)
         return left.timeUs < right.timeUs;
     });
     for (const MacroEvent &event : std::as_const(resolved)) {
-        if (event.type == MacroEventType::MouseMove) {
-            ++m_samplerHealth.resolvedSampleAttempts;
-            const bool duplicate = m_hasLastRecordedCursorPosition
-                && event.x == m_lastRecordedCursorPosition.x()
-                && event.y == m_lastRecordedCursorPosition.y();
-            if (duplicate) {
-                ++m_samplerHealth.resolvedIdenticalCoordinates;
-                ++m_samplerHealth.duplicateMoveSuppressions;
-                ++m_samplerHealth.consecutiveIdenticalResolvedSamples;
-                m_samplerHealth.lastDuplicateSuppressionMonotonicUs = m_monitor->currentTimeUs();
-                continue;
-            }
-            ++m_samplerHealth.resolvedCoordinateChanges;
-            m_samplerHealth.consecutiveIdenticalResolvedSamples = 0;
-            m_lastRecordedCursorPosition = QPointF(event.x, event.y);
-            m_hasLastRecordedCursorPosition = true;
-            ++m_samplerHealth.samplesDelivered;
-            m_samplerHealth.lastDeliveredSampleMonotonicUs = m_monitor->currentTimeUs();
-        }
         emit eventCaptured(event);
     }
     m_pendingMouseEvents.clear();
     m_hasCurrentMovement = false;
+    return false;
 }
 
 void EvdevCaptureBackend::flushPendingMouseEventsUnanchored()

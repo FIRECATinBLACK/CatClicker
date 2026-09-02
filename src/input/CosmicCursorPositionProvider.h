@@ -48,9 +48,14 @@ struct CursorProviderHealth {
     quint64 cursorSessionGeneration = 0;
     quint64 cursorSessionRecreateCount = 0;
     quint64 positionAfterRecreateCount = 0;
+    quint64 staleHardRefreshRequests = 0;
+    quint64 staleHardRefreshCompletions = 0;
+    quint64 staleHardRefreshFailures = 0;
     bool cursorSessionRefreshOutstanding = false;
+    bool staleHardRefreshOutstanding = false;
     qint64 latestPositionCallbackMonotonicUs = 0;
     qint64 latestRefreshRequestMonotonicUs = 0;
+    qint64 lastStaleHardRefreshMonotonicUs = 0;
     CursorSnapshot latestPublished;
 };
 
@@ -99,6 +104,7 @@ public:
     void requestHealthProbe();
     bool requestCursorSessionRefresh();
     bool supersedeCursorSessionRefresh();
+    bool requestCaptureSourceRefresh();
     QString statusText() const;
     QString diagnosticState() const;
 
@@ -156,8 +162,14 @@ private:
     std::atomic_bool m_cursorSessionRefreshOutstanding = false;
     std::atomic_bool m_healthProbeRequested = false;
     std::atomic_bool m_cursorSessionRefreshRequested = false;
+    std::atomic_bool m_captureSourceRefreshRequested = false;
+    std::atomic_bool m_staleHardRefreshOutstanding = false;
+    std::atomic<quint64> m_staleHardRefreshRequests = 0;
+    std::atomic<quint64> m_staleHardRefreshCompletions = 0;
+    std::atomic<quint64> m_staleHardRefreshFailures = 0;
     std::atomic<qint64> m_latestPositionCallbackMonotonicUs = 0;
     std::atomic<qint64> m_latestRefreshRequestMonotonicUs = 0;
+    std::atomic<qint64> m_lastStaleHardRefreshMonotonicUs = 0;
     int m_wakePipe[2] = {-1, -1};
     std::thread m_thread;
 

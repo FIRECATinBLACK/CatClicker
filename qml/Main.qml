@@ -73,7 +73,7 @@ ApplicationWindow {
                         spacing: 4
 
                         Text {
-                            text: "Show developer/debug tools"
+                            text: "Developer Info"
                             color: Theme.textPrimary
                             font.pixelSize: 16
                             font.bold: true
@@ -81,7 +81,7 @@ ApplicationWindow {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Hide developer playback generators, diagnostics, pointer debug output, and other engineering-only UI."
+                            text: "Show implementation details, safe diagnostics, and developer test controls. User-facing errors stay visible."
                             color: Theme.textMuted
                             font.pixelSize: 13
                             wrapMode: Text.Wrap
@@ -555,6 +555,39 @@ ApplicationWindow {
                                         Theme.darkMode = checked
                                     }
                                 }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 150
+                            height: 78
+                            radius: 20
+                            color: Theme.cardBackgroundAlt
+                            border.width: 1
+                            border.color: Theme.outline
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 10
+
+                                Image {
+                                    source: "qrc:/CatClicker/branding/github-mark.svg"
+                                    sourceSize.width: 24
+                                    sourceSize.height: 24
+                                }
+
+                                Text {
+                                    text: "GitHub"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://github.com/FIRECATinBLACK/CatClicker")
                             }
                         }
 

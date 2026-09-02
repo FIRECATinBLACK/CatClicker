@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.24)
 
 project(CatClicker VERSION 0.1.0 LANGUAGES C CXX)
 
+execute_process(
+    COMMAND git rev-parse --short=12 HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE CATCLICKER_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT CATCLICKER_GIT_COMMIT)
+    set(CATCLICKER_GIT_COMMIT "unknown")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -45,12 +56,10 @@ endif()
 
 find_program(WAYLAND_SCANNER_EXECUTABLE NAMES wayland-scanner)
 set(WAYLAND_PROTOCOL_DATA_CANDIDATES
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wayland-protocols"
     /usr/share/wayland-protocols
     /usr/local/share/wayland-protocols
 )
-file(GLOB FLATPAK_WAYLAND_PROTOCOL_DIRS
-    "$ENV{HOME}/.local/share/flatpak/runtime/*/*/*/*/files/share/wayland-protocols")
-list(APPEND WAYLAND_PROTOCOL_DATA_CANDIDATES ${FLATPAK_WAYLAND_PROTOCOL_DIRS})
 find_path(EXT_IMAGE_COPY_PROTOCOL_DIR
     NAMES staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml
     PATHS ${WAYLAND_PROTOCOL_DATA_CANDIDATES}
@@ -156,6 +165,21 @@ set_source_files_properties("${CATCLICKER_RUNTIME_ICON}" PROPERTIES
 qt_add_resources(CatClicker "catclicker_branding"
     PREFIX "/CatClicker/branding"
     FILES "${CATCLICKER_RUNTIME_ICON}"
+)
+
+set(CATCLICKER_GITHUB_MARK "${CMAKE_CURRENT_SOURCE_DIR}/assets/third_party/github-mark.svg")
+set_source_files_properties("${CATCLICKER_GITHUB_MARK}" PROPERTIES
+    QT_RESOURCE_ALIAS github-mark.svg)
+qt_add_resources(CatClicker "catclicker_github_mark"
+    PREFIX "/CatClicker/branding"
+    FILES "${CATCLICKER_GITHUB_MARK}"
+)
+
+add_custom_target(audit-no-network
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AuditNoNetwork.cmake
+    COMMENT "Auditing source for accidental runtime networking"
 )
 
 target_include_directories(CatClicker
@@ -276,4 +300,10 @@ if(BUILD_TESTING)
 
     add_test(NAME CatClickerTests COMMAND $<TARGET_FILE:CatClickerTests>)
     set_tests_properties(CatClickerTests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME SafeDiagnosticsAudit
+        COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AuditSafeDiagnostics.cmake)
+    add_test(NAME NoRuntimeNetworkAudit
+        COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AuditNoNetwork.cmake)
 endif()

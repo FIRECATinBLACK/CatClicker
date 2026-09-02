@@ -416,6 +416,7 @@ private slots:
     void heldKeyCleanup();
     void heldButtonCleanup();
     void corruptedMacroRejected();
+    void hostileMacroInputRemainsDataOrIsRejected();
     void monitorCompatibility();
     void buttonAnchorEnforcement();
     void completionReleases();
@@ -920,7 +921,7 @@ void MacroCoreTests::corruptedMacroRejected()
     })", &macro, &error));
     QVERIFY(error.contains(QStringLiteral("duration_us")));
 
-    QVERIFY(MacroSerializer::fromJson(R"({
+    QVERIFY(!MacroSerializer::fromJson(R"({
         "format": "CatClicker Macro",
         "version": 1,
         "name": "Edge",
@@ -938,7 +939,40 @@ void MacroCoreTests::corruptedMacroRejected()
         },
         "events": []
     })", &macro, &error));
-    QCOMPARE(macro.durationUs, std::numeric_limits<qint64>::min());
+    QVERIFY(error.contains(QStringLiteral("duration")));
+}
+
+void MacroCoreTests::hostileMacroInputRemainsDataOrIsRejected()
+{
+    const QString hostileName = QStringLiteral("$(touch /tmp/nope); 'quoted'\nUnicode: 猫");
+    Macro source;
+    source.name = hostileName;
+    source.durationUs = 10;
+    source.events = {MacroEvent::keyEvent(10, 30, true)};
+
+    Macro parsed;
+    QString error;
+    QVERIFY(MacroSerializer::fromJson(MacroSerializer::toJson(source), &parsed, &error));
+    QCOMPARE(parsed.name, hostileName);
+
+    QByteArray oversized(MacroSerializer::MaximumFileSize + 1, 'x');
+    QVERIFY(!MacroSerializer::fromJson(oversized, &parsed, &error));
+    QVERIFY(error.contains(QStringLiteral("64 MiB")));
+
+    QByteArray unknown = MacroSerializer::toJson(source);
+    unknown.replace("\"key\"", "\"shell_command\"");
+    QVERIFY(!MacroSerializer::fromJson(unknown, &parsed, &error));
+    QVERIFY(error.contains(QStringLiteral("Unknown event type")));
+
+    QByteArray nonChronological = MacroSerializer::toJson(source);
+    nonChronological.replace("\"time_us\": \"10\"", "\"time_us\": \"11\"");
+    QVERIFY(!MacroSerializer::fromJson(nonChronological, &parsed, &error));
+    QVERIFY(error.contains(QStringLiteral("chronological")));
+
+    QByteArray invalidNumeric = MacroSerializer::toJson(source);
+    invalidNumeric.replace("\"x\": 0", "\"x\": 1e999");
+    invalidNumeric.replace("\"key\"", "\"mouse_move\"");
+    QVERIFY(!MacroSerializer::fromJson(invalidNumeric, &parsed, &error));
 }
 
 void MacroCoreTests::monitorCompatibility()

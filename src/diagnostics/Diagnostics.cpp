@@ -2,6 +2,8 @@
 
 #include "BuildConfig.h"
 
+#include <QtCore/QCoreApplication>
+#include <QtCore/QSysInfo>
 #include <QtCore/QProcessEnvironment>
 
 namespace CatClicker {
@@ -26,6 +28,19 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
     const ScreenCastCursorModeSupport cursorModes = PortalController::decodeCursorModes(capabilities.availableCursorModes);
 
     QStringList lines;
+    lines << QStringLiteral("CatClicker safe debug report");
+    lines << QStringLiteral("Preview this complete report before sharing.");
+    lines << QStringLiteral("CatClicker version: %1").arg(QCoreApplication::applicationVersion());
+    lines << QStringLiteral("Git commit: %1").arg(QStringLiteral(CATCLICKER_GIT_COMMIT));
+#ifdef NDEBUG
+    lines << QStringLiteral("Build type: Release");
+#else
+    lines << QStringLiteral("Build type: Debug");
+#endif
+    lines << QStringLiteral("Qt compile/runtime: %1 / %2").arg(QStringLiteral(QT_VERSION_STR), qVersion());
+    lines << QStringLiteral("Kernel: %1 %2").arg(QSysInfo::kernelType(), QSysInfo::kernelVersion());
+    lines << QStringLiteral("Operating system: %1 %2")
+                 .arg(QSysInfo::productType(), QSysInfo::productVersion());
     lines << QStringLiteral("Session type: %1").arg(env.value(QStringLiteral("XDG_SESSION_TYPE"), QStringLiteral("unknown")));
     lines << QStringLiteral("Desktop: %1").arg(env.value(QStringLiteral("XDG_CURRENT_DESKTOP"), QStringLiteral("unknown")));
     lines << QStringLiteral("Playback backend: %1").arg(selectedPlaybackBackend.isEmpty() ? QStringLiteral("none selected") : selectedPlaybackBackend);
@@ -53,21 +68,20 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
     lines << QStringLiteral("Global input listener: %1").arg(globalInputMonitor.listenerStatusText());
     lines << QStringLiteral("Global hotkeys: %1").arg(globalInputMonitor.hotkeyStatusText());
     lines << QStringLiteral("Recording backend mode: %1").arg(globalInputMonitor.recordingBackendText());
-    lines << QStringLiteral("Selected monitor: %1").arg(display.displayId);
-    lines << QStringLiteral("Monitor logical geometry: %1x%2 @ (%3, %4)")
+    lines << QStringLiteral("Monitor logical geometry: %1x%2")
                  .arg(display.logicalWidth)
-                 .arg(display.logicalHeight)
-                 .arg(display.offsetX)
-                 .arg(display.offsetY);
+                 .arg(display.logicalHeight);
     lines << QStringLiteral("Monitor scale: %1").arg(display.scale, 0, 'f', 2);
 
     if (backend) {
         lines << QStringLiteral("Playback backend status: %1").arg(backend->statusText());
-        lines.append(backend->diagnosticLines());
     }
 
-    lines.append(globalInputMonitor.diagnosticLines());
-    lines.append(evdevInspector.diagnosticLines());
+    lines << QStringLiteral("Physical evdev access: %1")
+                 .arg(evdevInspector.hasAnyReadablePhysicalInputDevices() ? QStringLiteral("yes") : QStringLiteral("no"));
+    lines << QStringLiteral("Physical keyboard nodes: %1").arg(globalInputMonitor.keyboardNodeCount());
+    lines << QStringLiteral("Physical pointer nodes: %1").arg(globalInputMonitor.pointerNodeCount());
+    lines << QStringLiteral("Physical input open failures: %1").arg(globalInputMonitor.openFailureCount());
 
     for (const QString &warning : capabilities.warnings) {
         lines << QStringLiteral("Warning: %1").arg(warning);

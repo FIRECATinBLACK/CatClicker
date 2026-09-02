@@ -62,6 +62,9 @@ class ApplicationController : public QObject {
     Q_PROPERTY(QString permissionManualCommand READ permissionManualCommand NOTIFY permissionPromptChanged)
     Q_PROPERTY(bool permissionSetupInProgress READ permissionSetupInProgress NOTIFY permissionPromptChanged)
     Q_PROPERTY(QString permissionSetupStatus READ permissionSetupStatus NOTIFY permissionPromptChanged)
+    Q_PROPERTY(bool permissionSetupNeedsSessionRefresh READ permissionSetupNeedsSessionRefresh NOTIFY permissionPromptChanged)
+    Q_PROPERTY(bool inputPermissionSetupRequired READ inputPermissionSetupRequired NOTIFY permissionPromptChanged)
+    Q_PROPERTY(QString inputPermissionStateText READ inputPermissionStateText NOTIFY permissionPromptChanged)
 
 public:
     enum class AppState {
@@ -112,6 +115,9 @@ public:
     QString permissionManualCommand() const;
     bool permissionSetupInProgress() const;
     QString permissionSetupStatus() const;
+    bool permissionSetupNeedsSessionRefresh() const;
+    bool inputPermissionSetupRequired() const;
+    QString inputPermissionStateText() const;
 
     void setPlaybackSpeed(double value);
     void setLoopPlaybackEnabled(bool value);
@@ -140,6 +146,9 @@ public:
     Q_INVOKABLE void copyDiagnostics() const;
     Q_INVOKABLE void enableGlobalInput();
     Q_INVOKABLE void dismissPermissionPrompt();
+    Q_INVOKABLE void showPermissionSetup();
+    Q_INVOKABLE void recheckInputPermissions();
+    Q_INVOKABLE void openProjectWebsite() const;
     Q_INVOKABLE void copyPermissionManualCommand() const;
 
 signals:
@@ -168,7 +177,7 @@ private:
     bool m_darkMode = true;
     bool m_loopPlaybackEnabled = false;
     bool m_smoothMousePlaybackEnabled = false;
-    bool m_showDeveloperTools = true;
+    bool m_showDeveloperTools = false;
     QString m_macroPath;
     QString m_selectedPlaybackBackend;
     QString m_playbackBackendReason;
@@ -182,6 +191,7 @@ private:
     bool m_permissionSetupCanUsePkexec = false;
     bool m_permissionSetupInProgress = false;
     bool m_permissionPromptDismissedForSession = false;
+    bool m_permissionSetupNeedsSessionRefresh = false;
     bool m_useDirectCosmicCursorProvider = false;
     Macro m_currentMacro;
     FileChooserPortal m_fileChooserPortal;

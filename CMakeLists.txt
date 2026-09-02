@@ -24,6 +24,10 @@ set(CMAKE_AUTOUIC ON)
 include(CTest)
 include(GNUInstallDirs)
 
+file(RELATIVE_PATH CATCLICKER_PERMISSION_HELPER_RELATIVE_PATH
+    "/${CMAKE_INSTALL_BINDIR}"
+    "/${CMAKE_INSTALL_LIBEXECDIR}/catclicker/setup-input-permissions.sh")
+
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick DBus Test)
 find_package(PkgConfig QUIET)
 
@@ -232,6 +236,10 @@ install(TARGETS CatClicker
 
 install(FILES packaging/linux/catclicker.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+)
+
+install(PROGRAMS scripts/setup-input-permissions.sh
+    DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/catclicker
 )
 
 foreach(CATCLICKER_ICON_SIZE IN ITEMS 16 24 32 48 64 96 128 256 512)

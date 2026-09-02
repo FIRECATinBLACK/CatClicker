@@ -143,6 +143,40 @@ ApplicationWindow {
             Rectangle {
                 width: parent.width
                 implicitHeight: 52
+                visible: appController.inputPermissionSetupRequired
+                radius: 16
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 10
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: appController.inputPermissionStateText
+                        color: Theme.textSecondary
+                        font.pixelSize: 13
+                        wrapMode: Text.Wrap
+                    }
+
+                    ActionButton {
+                        text: "Set up input permissions"
+                        accentColor: Theme.primaryPink
+                        implicitWidth: 205
+                        onClicked: {
+                            settingsPopup.close()
+                            appController.showPermissionSetup()
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                implicitHeight: 52
                 radius: 16
                 color: Theme.panelBackground
                 border.width: 1
@@ -189,7 +223,7 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: "Enable global input"
+                text: appController.permissionPromptMessage
                 color: Theme.textPrimary
                 font.pixelSize: 28
                 font.bold: true
@@ -198,7 +232,7 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: "CatClicker needs permission to listen for global hotkeys and record while other apps are focused. Playback also needs access to the virtual input device."
+                text: "Global shortcuts and recording outside CatClicker need physical input access. Playback needs /dev/uinput."
                 color: Theme.textPrimary
                 font.pixelSize: 15
                 wrapMode: Text.Wrap
@@ -288,15 +322,21 @@ ApplicationWindow {
 
                 ActionButton {
                     Layout.fillWidth: true
-                    text: "Enable global input"
+                    text: appController.permissionSetupNeedsSessionRefresh ? "Recheck access" : "Enable global input"
                     accentColor: Theme.primaryPink
                     enabled: !appController.permissionSetupInProgress
-                    onClicked: appController.enableGlobalInput()
+                    onClicked: {
+                        if (appController.permissionSetupNeedsSessionRefresh) {
+                            appController.recheckInputPermissions()
+                        } else {
+                            appController.enableGlobalInput()
+                        }
+                    }
                 }
 
                 ActionButton {
                     Layout.fillWidth: true
-                    text: "Not now"
+                    text: appController.permissionSetupNeedsSessionRefresh ? "Close" : "Not now"
                     accentColor: Theme.primaryBlue
                     enabled: !appController.permissionSetupInProgress
                     onClicked: appController.dismissPermissionPrompt()
@@ -307,7 +347,6 @@ ApplicationWindow {
 
     Component.onCompleted: {
         Theme.darkMode = appController.darkMode
-        console.log("[startup-qml] Main ApplicationWindow completed", width, height, visible)
     }
 
     Rectangle {
@@ -589,7 +628,7 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://github.com/FIRECATinBLACK/CatClicker")
+                                onClicked: appController.openProjectWebsite()
                             }
                         }
 
@@ -737,7 +776,7 @@ ApplicationWindow {
 
                 Text {
                     width: parent.width
-                    visible: appController.showDeveloperTools
+                    visible: appController.showDeveloperTools && appController.playbackBackendReason.length > 0
                     text: appController.playbackBackendReason
                     color: Theme.textMuted
                     font.pixelSize: 14

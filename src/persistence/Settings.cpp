@@ -56,7 +56,7 @@ bool Settings::smoothMousePlaybackEnabled() const
 
 bool Settings::showDeveloperTools() const
 {
-    return m_settings.value(QStringLiteral("ui/showDeveloperTools"), true).toBool();
+    return m_settings.value(QStringLiteral("ui/showDeveloperTools"), false).toBool();
 }
 
 void Settings::setDarkMode(bool value)

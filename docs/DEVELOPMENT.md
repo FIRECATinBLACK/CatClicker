@@ -8,7 +8,7 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-Direct COSMIC support needs staging XML for ext image copy capture, ext image capture source, and ext foreign toplevel list. CMake searches normal `wayland-protocols` data locations and does not download protocols.
+Direct COSMIC support needs staging XML for ext image copy capture, ext image capture source, and ext foreign toplevel list. CMake prefers the verified copies under `third_party/wayland-protocols`, then checks normal system data locations. It does not download protocols.
 
 ```bash
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \

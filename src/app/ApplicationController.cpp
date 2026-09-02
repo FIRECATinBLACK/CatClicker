@@ -1,5 +1,7 @@
 #include "ApplicationController.h"
 
+#include "BuildConfig.h"
+
 #include "../input/PlaybackBackendSelector.h"
 #include "../persistence/MacroSerializer.h"
 
@@ -13,6 +15,7 @@
 #include <QtCore/QProcess>
 #include <QtCore/QStandardPaths>
 #include <QtGui/QClipboard>
+#include <QtGui/QDesktopServices>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeySequence>
 
@@ -545,7 +548,7 @@ QString ApplicationController::selectedPlaybackBackend() const
 
 QString ApplicationController::playbackBackendReason() const
 {
-    return m_playbackBackendReason;
+    return m_playbackBackendReason == m_statusText ? QString() : m_playbackBackendReason;
 }
 
 QString ApplicationController::recordingSummary() const
@@ -638,6 +641,26 @@ bool ApplicationController::permissionSetupInProgress() const
 QString ApplicationController::permissionSetupStatus() const
 {
     return m_permissionSetupStatus;
+}
+
+bool ApplicationController::permissionSetupNeedsSessionRefresh() const
+{
+    return m_permissionSetupNeedsSessionRefresh;
+}
+
+bool ApplicationController::inputPermissionSetupRequired() const
+{
+    return !m_globalInputMonitor.globalHotkeysActive()
+        || !m_uinputInputSender.availabilityProbe().openable;
+}
+
+QString ApplicationController::inputPermissionStateText() const
+{
+    const bool globalAvailable = m_globalInputMonitor.globalHotkeysActive();
+    const bool playbackAvailable = m_uinputInputSender.availabilityProbe().openable;
+    return QStringLiteral("Global recording: %1. Playback: %2.")
+        .arg(globalAvailable ? QStringLiteral("available") : QStringLiteral("unavailable"),
+             playbackAvailable ? QStringLiteral("available") : QStringLiteral("unavailable"));
 }
 
 void ApplicationController::setPlaybackSpeed(double value)
@@ -1075,7 +1098,7 @@ void ApplicationController::copyDiagnostics() const
 
 void ApplicationController::enableGlobalInput()
 {
-    if (m_permissionSetupInProgress) {
+    if (m_permissionSetupInProgress || m_permissionSetupNeedsSessionRefresh) {
         return;
     }
 
@@ -1126,6 +1149,45 @@ void ApplicationController::dismissPermissionPrompt()
 {
     m_permissionPromptDismissedForSession = true;
     updatePermissionPromptState(false);
+}
+
+void ApplicationController::showPermissionSetup()
+{
+    m_permissionPromptDismissedForSession = false;
+    if (m_permissionSetupNeedsSessionRefresh) {
+        updatePermissionPromptState(true);
+        return;
+    }
+    evaluateStartupPermissions(true);
+}
+
+void ApplicationController::recheckInputPermissions()
+{
+    m_globalInputMonitor.stopMonitoring();
+    m_globalInputMonitor.startMonitoring();
+    if (evaluateStartupPermissions(false) == StartupPermissionState::FullyAvailable) {
+        m_permissionSetupNeedsSessionRefresh = false;
+        updatePermissionPromptState(false);
+    } else {
+        m_permissionSetupNeedsSessionRefresh = true;
+        updatePermissionPromptState(
+            true,
+            QStringLiteral("Session refresh required"),
+            QStringLiteral("Setup completed. Log out and back in, then relaunch CatClicker."),
+            QStringLiteral("Access is not active in this session yet."));
+    }
+    refreshDiagnostics();
+}
+
+void ApplicationController::openProjectWebsite() const
+{
+    const QUrl projectUrl(QStringLiteral("https://github.com/FIRECATinBLACK/CatClicker"));
+    const QString xdgOpen = QStandardPaths::findExecutable(QStringLiteral("xdg-open"));
+    if (!xdgOpen.isEmpty()
+        && QProcess::startDetached(xdgOpen, {projectUrl.toString()})) {
+        return;
+    }
+    QDesktopServices::openUrl(projectUrl);
 }
 
 void ApplicationController::copyPermissionManualCommand() const
@@ -1312,6 +1374,7 @@ ApplicationController::StartupPermissionState ApplicationController::evaluateSta
     m_permissionManualCommand = permissionHelperManualCommand();
 
     if (globalInputAvailable && uinputProbe.openable) {
+        m_permissionSetupNeedsSessionRefresh = false;
         updatePermissionPromptState(false);
         return StartupPermissionState::FullyAvailable;
     }
@@ -1330,11 +1393,8 @@ ApplicationController::StartupPermissionState ApplicationController::evaluateSta
             missingAccess << QStringLiteral("/dev/uinput");
         }
 
-        QString details =
-            QStringLiteral("CatClicker needs permission to listen for global hotkeys and record input while other apps are focused. Playback also needs access to the virtual input device.");
-        if (!missingAccess.isEmpty()) {
-            details.append(QStringLiteral(" Missing access: %1.").arg(missingAccess.join(QStringLiteral(" and "))));
-        }
+        QString details = QStringLiteral("Missing access: %1.")
+                              .arg(missingAccess.join(QStringLiteral(" and ")));
         if (!m_permissionSetupCanUsePkexec) {
             details.append(QStringLiteral(" pkexec is unavailable, so run the command below manually."));
         }
@@ -1353,6 +1413,8 @@ ApplicationController::StartupPermissionState ApplicationController::evaluateSta
 QString ApplicationController::permissionHelperScriptPath() const
 {
     const QString candidates[] = {
+        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(
+            QString::fromUtf8(CATCLICKER_PERMISSION_HELPER_RELATIVE_PATH)),
         QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("scripts/setup-input-permissions.sh")),
         QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../scripts/setup-input-permissions.sh")),
         QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../scripts/setup-input-permissions.sh")),
@@ -1433,10 +1495,11 @@ void ApplicationController::finishPermissionSetupProcess(int exitCode, QProcess:
         return;
     }
 
+    m_permissionSetupNeedsSessionRefresh = true;
     updatePermissionPromptState(true,
-                                QStringLiteral("Finish enabling global input"),
-                                QStringLiteral("Setup completed, but this session still cannot open all required devices. Log out and back in, then relaunch CatClicker."),
-                                QStringLiteral("Permission setup finished. A session refresh is still required."));
+                                QStringLiteral("Session refresh required"),
+                                QStringLiteral("Setup completed. Log out and back in, then relaunch CatClicker."),
+                                QStringLiteral("Access is not active in this session yet."));
     refreshDiagnostics();
 }
 

@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest a focused improvement
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: use_case
+    attributes: {label: Use case, description: "What are you trying to accomplish?"}
+    validations: {required: true}
+  - type: textarea
+    id: behavior
+    attributes: {label: Requested behavior}
+    validations: {required: true}
+  - type: input
+    id: platform
+    attributes: {label: Compositor or platform, description: "Include this when the request depends on the desktop or input stack."}
+  - type: textarea
+    id: safety
+    attributes: {label: Input safety implications, description: "Could this affect coordinates, injected input, permissions, or untrusted files?"}

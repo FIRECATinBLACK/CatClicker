@@ -1,158 +1,93 @@
 # CatClicker
 
-CatClicker is a native Linux Wayland macro recorder/player focused on accurate keyboard + mouse automation instead of X11 compatibility shims. The target stack is C++20, Qt 6.4+, Qt Quick/QML, QtDBus, PipeWire/SPA, libei, libevdev, and direct Linux `uinput`.
+<p align="center"><img src="assets/branding/source/icon.png" width="160" alt="CatClicker logo"></p>
 
-This repository currently contains a COSMIC-focused playback milestone:
+CatClicker is a native autoclicker and macro recorder built for Pop!_OS and the COSMIC desktop on Wayland.
 
-- a runnable Qt Quick application shell
-- explicit Wayland/portal/uinput diagnostics
-- a versioned `.catmacro` JSON format
-- settings persistence and shortcut configuration UI
-- a real runtime-selected playback abstraction
-- a real `/dev/uinput` absolute-pointer + keyboard playback backend
-- a threaded playback scheduler with anchor enforcement and emergency release
-- core macro domain classes, scheduler math, and unit tests
+## Status and platform support
 
-Current backend policy:
+CatClicker is pre-release software. Its primary and currently supported environment is Pop!_OS 24.04 with the COSMIC desktop in a native Wayland session. Other Wayland compositors are not supported yet. Contributions for trustworthy absolute cursor backends on other compositors are welcome. X11 is not a current target.
 
-- prefer `RemoteDesktop + libei` when it is truly usable
-- fall back to `/dev/uinput` on current COSMIC where the portal path is not reliable
-- keep `ScreenCast + PipeWire` and evdev architecture in place for the next recording milestone where the compositor actually advertises ScreenCast cursor `Metadata` mode
+The current COSMIC implementation has been host tested for keyboard and mouse recording, anchored clicks and scroll, drags, long holds, repeated sessions, global hotkeys, save and load, looping, and optional smooth playback.
 
-## Building
+## Features
 
-On Pop!_OS / Ubuntu-family systems, install the development dependencies first:
+- Passive physical input capture through evdev while recording
+- Exact mouse button and scroll anchors from COSMIC cursor metadata
+- Keyboard and pointer playback through Linux uinput
+- Versioned local `.catmacro` files
+- Global record, play, and stop shortcuts
+- Looping and selectable playback speed
+- Optional cosmetic smoothing between recorded mouse positions
+- Light and dark CatClicker themes
+
+## Important limitations
+
+- COSMIC Wayland is the only supported compositor environment today.
+- Input capture and uinput need explicit device permissions.
+- A macro replays input into whichever application receives it. Review macros from other people before playback.
+- CatClicker never derives absolute coordinates by adding relative mouse deltas. A click or scroll without a trusted absolute position is dropped.
+
+## Build requirements
+
+On Pop!_OS 24.04:
 
 ```bash
 sudo apt update
-sudo apt install \
-  build-essential \
-  cmake \
-  ninja-build \
-  pkg-config \
-  qt6-base-dev \
-  qt6-declarative-dev \
-  libpipewire-0.3-dev \
-  libspa-0.2-dev \
-  libei-dev \
-  libevdev-dev
+sudo apt install build-essential cmake ninja-build pkg-config \
+  qt6-base-dev qt6-declarative-dev libpipewire-0.3-dev libspa-0.2-dev \
+  libei-dev libevdev-dev libwayland-dev wayland-protocols
 ```
 
-Then configure and build:
+CatClicker needs Qt 6.4 or newer. Direct COSMIC cursor support also needs `wayland-scanner` and the ext image capture protocol XML files described in [Development](docs/DEVELOPMENT.md).
+
+## Build, install, and run
 
 ```bash
 cmake -S . -B build -G Ninja
-cmake --build build
+cmake --build build -j4
 ctest --test-dir build --output-on-failure
-```
-
-## Running
-
-Launch the application from the build directory:
-
-```bash
 ./build/bin/CatClicker
+cmake --install build --prefix "$HOME/.local"
 ```
 
-The GUI is expected to run on Wayland. On this sandbox host, the live session variables indicate `XDG_SESSION_TYPE=wayland` and `XDG_CURRENT_DESKTOP=COSMIC`.
+After installation, launch `CatClicker` from the desktop menu or run `$HOME/.local/bin/CatClicker`.
 
-## Input Permissions
+## Input permissions
 
-CatClicker is designed to read physical keyboard/mouse input only while recording, and to inject playback events through `/dev/uinput` without running the GUI as root.
+Do not run the GUI as root and do not make input devices globally writable. Run `./scripts/setup-input-permissions.sh` once. The helper installs udev rules using `uaccess` for `/dev/uinput` and eligible physical input devices. CatClicker can request the helper through Polkit or show a manual command. It never collects a password and does not prompt when access is already correct.
 
-Run the setup helper once:
+## Record and play
 
-```bash
-./scripts/setup-input-permissions.sh
-```
+1. Choose Record or use the record shortcut.
+2. Perform the actions to capture, then choose Stop.
+3. Save the macro if wanted, then choose Play.
+4. Stop playback at any time with the stop shortcut.
 
-The setup script now installs `TAG+="uaccess"` rules so systemd-logind grants ACLs to the active local session for:
+Mouse actions whose positions cannot be trusted are omitted. Smooth playback adds cosmetic intermediate positions only. It does not change the macro file, and saved click and scroll anchors remain exact.
 
-- `/dev/uinput`
-- physical keyboard event nodes
-- physical mouse event nodes
-- touchpad event nodes
+## Privacy and safety
 
-If your host does not apply `uaccess` ACLs as expected, the README and diagnostics will make that visible; CatClicker itself should still not be run as root.
+CatClicker has no telemetry, analytics, update checker, or network client. Recordings remain local unless you share them. The GitHub button only asks your desktop browser to open the fixed project URL after you click it. See [Privacy](docs/PRIVACY.md) and [Macro format](docs/MACRO_FORMAT.md).
 
-## Wayland Permissions
+Macro text is parsed as data and is never passed to a shell. Replayed keyboard input can still be interpreted by the target application. Text deliberately replayed into a terminal may be executed by that terminal. CatClicker itself does not execute macro text.
 
-CatClicker uses or plans to use XDG Desktop Portal APIs for:
+## Project documentation
 
-- `FileChooser` for native Wayland save/load dialogs instead of the Qt Quick fallback dialog path
-- `RemoteDesktop` for preferred future keyboard/pointer injection when truly usable
-- `ScreenCast` for cursor metadata from PipeWire/SPA on desktops that advertise cursor `Metadata` mode
-- `GlobalShortcuts` for future system-wide Record / Play / Stop hotkeys on desktops that expose it
+- [Architecture](docs/ARCHITECTURE.md)
+- [COSMIC Wayland cursor design](docs/COSMIC_WAYLAND.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Debugging](docs/DEBUGGING.md)
+- [Performance](docs/PERFORMANCE.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
-When these backends are implemented, the compositor or portal service will display permission dialogs to authorize screen selection, remote input, and shortcut registration.
+Support for additional compositor backends, tests, documentation fixes, and focused code improvements is welcome.
 
-## Architecture
+## AI assistance
 
-- `src/macro/`: versioned macro data model, event timeline ordering, and scheduler timestamp scaling.
-- `src/input/`: backend boundaries for passive evdev capture, PipeWire cursor metadata, portal session control, libei injection, and direct `uinput` playback.
-- `src/persistence/`: `.catmacro` JSON serialization and user settings via XDG paths.
-- `src/app/`: explicit application state machine and GUI-facing controller.
-- `src/diagnostics/`: environment and backend capability reporting for debugging compositor-specific issues.
-- `qml/`: the CatClicker Qt Quick interface and central visual theme.
+CatClicker has been developed with substantial assistance from AI coding tools. Changes are reviewed, tested, and validated on the target environment before they are accepted.
 
-Current playback flow on COSMIC:
+## License
 
-1. Load or generate a `.catmacro`.
-2. `ApplicationController` selects the best playback backend at runtime.
-3. On current COSMIC, `UinputInputSender` creates persistent virtual keyboard and absolute-pointer devices.
-4. `MacroPlayer` replays the unified event timeline on a worker thread using `std::chrono::steady_clock`.
-5. Button-down anchor coordinates are enforced immediately before the click.
-6. Stop, error, completion, and shutdown all trigger real key/button release events before internal held-state cleanup.
-
-Planned recording flow for the next milestone:
-
-1. If the compositor advertises ScreenCast cursor `Metadata` mode, `ScreenCast` provides the selected monitor stream.
-2. PipeWire/SPA cursor metadata yields absolute logical cursor coordinates on those desktops.
-3. Passive evdev capture records physical keys, mouse buttons, and wheel events.
-4. evdev-based CatClicker shortcuts will be filtered so CatClicker does not record itself.
-
-On current COSMIC, the reported ScreenCast cursor bitmask `3` means `Hidden + Embedded` only, not `Metadata`. For COSMIC-specific absolute cursor recording, the next investigation target is the newer image-copy-capture path, especially `ext_image_copy_capture_cursor_session_v1.position`, if the compositor advertises:
-
-- `ext_image_copy_capture_manager_v1`
-- `ext_output_image_capture_source_manager_v1`
-- `ext_image_capture_source_v1`
-- related COSMIC image-capture protocols such as `zcosmic_workspace_image_capture_source_manager_v1`
-
-## Troubleshooting
-
-Check the current session:
-
-```bash
-echo $XDG_SESSION_TYPE
-echo $XDG_CURRENT_DESKTOP
-echo $WAYLAND_DISPLAY
-```
-
-Check that the desktop portal is on the session bus:
-
-```bash
-busctl --user list | grep org.freedesktop.portal
-```
-
-Run the host probe script for a fuller report:
-
-```bash
-./scripts/probe-host.sh
-```
-
-If CatClicker reports missing capabilities:
-
-- confirm you are in a native Wayland session, not X11
-- confirm `xdg-desktop-portal` is running for your desktop
-- confirm the development packages above were installed before building
-- confirm `/dev/uinput` exists and the current user has an ACL granting access
-- confirm the selected compositor exposes `ScreenCast`, and do not assume `RemoteDesktop` or `GlobalShortcuts` exist on COSMIC yet
-
-## Current Status
-
-As of September 1, 2026, the repository has a real `/dev/uinput` playback path for current COSMIC, but recording and global shortcut capture are still intentionally deferred. The next vertical slices are:
-
-1. real `ScreenCast` + PipeWire cursor metadata capture
-2. passive evdev capture without `EVIOCGRAB`
-3. evdev-based CatClicker Record / Play / Stop shortcuts with self-device filtering
-4. `RemoteDesktop.ConnectToEIS()` plus libei absolute pointer + keyboard injection where the portal is truly usable
+CatClicker source code is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).

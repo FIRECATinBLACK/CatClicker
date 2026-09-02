@@ -25,6 +25,12 @@ bool readStringField(const QJsonObject &object, const QString &fieldName, QStrin
         return false;
     }
 
+    if (field.toString().size() > MacroSerializer::MaximumStringLength) {
+        if (error) {
+            *error = QStringLiteral("Field '%1' is too long.").arg(fieldName);
+        }
+        return false;
+    }
     if (value) {
         *value = field.toString();
     }
@@ -57,8 +63,15 @@ bool readNumberField(const QJsonObject &object, const QString &fieldName, double
         return false;
     }
 
+    const double number = field.toDouble();
+    if (!std::isfinite(number)) {
+        if (error) {
+            *error = QStringLiteral("Field '%1' must be finite.").arg(fieldName);
+        }
+        return false;
+    }
     if (value) {
-        *value = field.toDouble();
+        *value = number;
     }
     return true;
 }
@@ -220,13 +233,24 @@ bool eventFromJson(const QJsonObject &object, MacroEvent *event, QString *error)
     if (!parseIntegerField(object, QStringLiteral("time_us"), &timeUs, error)) {
         return false;
     }
+    if (timeUs < 0) {
+        *error = QStringLiteral("Event timestamps cannot be negative.");
+        return false;
+    }
 
-    const QString type = object.value(QStringLiteral("type")).toString();
+    QString type;
+    if (!readStringField(object, QStringLiteral("type"), &type, error)) {
+        return false;
+    }
     if (type == QStringLiteral("key")) {
         int keyCode = 0;
         bool pressed = false;
         if (!readIntField(object, QStringLiteral("keycode"), &keyCode, error)
             || !readBoolField(object, QStringLiteral("pressed"), &pressed, error)) {
+            return false;
+        }
+        if (keyCode < 0 || keyCode > 0x2ff) {
+            *error = QStringLiteral("Key code is outside the supported Linux input range.");
             return false;
         }
         *event = MacroEvent::keyEvent(timeUs,
@@ -259,6 +283,10 @@ bool eventFromJson(const QJsonObject &object, MacroEvent *event, QString *error)
             || !readNumberField(object, QStringLiteral("cursor_x"), &cursorX, error)
             || !readNumberField(object, QStringLiteral("cursor_y"), &cursorY, error)
             || !readBoolField(object, QStringLiteral("has_cursor_anchor"), &hasCursorAnchor, error)) {
+            return false;
+        }
+        if (button < 0x100 || button > 0x2ff) {
+            *error = QStringLiteral("Mouse button is outside the supported range.");
             return false;
         }
         *event = MacroEvent::mouseButton(timeUs,
@@ -331,6 +359,12 @@ QByteArray MacroSerializer::toJson(const Macro &macro)
 
 bool MacroSerializer::fromJson(const QByteArray &data, Macro *macro, QString *error)
 {
+    if (data.size() > MaximumFileSize) {
+        if (error) {
+            *error = QStringLiteral("Macro exceeds the 64 MiB file limit.");
+        }
+        return false;
+    }
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
@@ -374,6 +408,18 @@ bool MacroSerializer::fromJson(const QByteArray &data, Macro *macro, QString *er
         || !readArrayField(root, QStringLiteral("events"), &events, error)) {
         return false;
     }
+    if (parsed.durationUs < 0) {
+        if (error) {
+            *error = QStringLiteral("Macro duration cannot be negative.");
+        }
+        return false;
+    }
+    if (events.size() > MaximumEventCount) {
+        if (error) {
+            *error = QStringLiteral("Macro exceeds the 2,000,000 event limit.");
+        }
+        return false;
+    }
 
     parsed.createdAtUtc = QDateTime::fromString(createdAtString, Qt::ISODate);
     if (!parsed.createdAtUtc.isValid()) {
@@ -395,6 +441,7 @@ bool MacroSerializer::fromJson(const QByteArray &data, Macro *macro, QString *er
     }
 
     parsed.events.reserve(events.size());
+    qint64 previousTimeUs = -1;
     for (const QJsonValue &value : events) {
         MacroEvent event;
         QString eventError;
@@ -404,10 +451,16 @@ bool MacroSerializer::fromJson(const QByteArray &data, Macro *macro, QString *er
             }
             return false;
         }
+        if (event.timeUs < previousTimeUs || event.timeUs > parsed.durationUs) {
+            if (error) {
+                *error = QStringLiteral("Event timestamps must be chronological and within the macro duration.");
+            }
+            return false;
+        }
+        previousTimeUs = event.timeUs;
         parsed.events.push_back(event);
     }
 
-    parsed.sortChronologically();
     if (macro) {
         *macro = parsed;
     }
@@ -440,6 +493,13 @@ bool MacroSerializer::loadFromFile(const QString &path, Macro *macro, QString *e
     if (!file.open(QIODevice::ReadOnly)) {
         if (error) {
             *error = file.errorString();
+        }
+        return false;
+    }
+
+    if (file.size() > MaximumFileSize) {
+        if (error) {
+            *error = QStringLiteral("Macro exceeds the 64 MiB file limit.");
         }
         return false;
     }

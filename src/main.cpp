@@ -1,4 +1,5 @@
 #include "app/ApplicationController.h"
+#include "BuildConfig.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QIcon>
@@ -34,6 +35,7 @@ int main(int argc, char *argv[])
     traceStartup("QApplication created");
     app.setOrganizationName(QStringLiteral("CatClicker"));
     app.setApplicationName(QStringLiteral("CatClicker"));
+    app.setApplicationVersion(QStringLiteral(CATCLICKER_VERSION));
     app.setDesktopFileName(QStringLiteral("catclicker"));
     app.setWindowIcon(QIcon(QStringLiteral(":/CatClicker/branding/catclicker.png")));
 

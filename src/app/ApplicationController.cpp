@@ -434,8 +434,8 @@ QString ApplicationController::diagnosticsText() const
                                         m_portalController.currentDisplayInfo(),
                                         m_cursorTracker.hasBuildSupport(),
                                         m_qtFocusedCaptureBackend.isAvailable(),
-                                        QStringLiteral("%1\nScreenCast metadata provider: %2")
-                                            .arg(m_cosmicCursorProvider.diagnosticState(), m_cursorTracker.statusText()),
+                                        QStringLiteral("Direct COSMIC provider: %1; ScreenCast metadata provider: %2")
+                                            .arg(m_cosmicCursorProvider.statusText(), m_cursorTracker.statusText()),
                                         m_evdevInspector,
                                         m_globalInputMonitor,
                                         m_selectedPlaybackBackend,

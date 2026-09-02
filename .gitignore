@@ -1,0 +1,57 @@
+# CMake and generated build output
+/build/
+/build-*/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+*.ninja
+.ninja_*
+
+# Compiled output and crash data
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+core
+core.*
+*.core
+*.dmp
+
+# Local diagnostics and benchmarks
+*.log
+*.strace
+*-diagnostics.txt
+/benchmark-results/
+/performance-results/
+
+# Temporary installation trees
+/install/
+/install-*/
+/stage/
+/staging/
+
+# Personal macro recordings. Test fixtures under tests/fixtures are allowed.
+*.catmacro
+!tests/fixtures/*.catmacro
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Managed-session and alternate local Git metadata
+/.agents/
+/.codex/
+/.git-local/

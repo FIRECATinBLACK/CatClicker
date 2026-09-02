@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CatClicker
+Comment=Wayland macro recorder and autoclicker
+Exec=CatClicker
+Icon=catclicker
+Terminal=false
+Categories=Utility;

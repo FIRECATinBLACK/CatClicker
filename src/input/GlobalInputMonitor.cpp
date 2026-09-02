@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <algorithm>
 #include <cstddef>
 #include <chrono>
 #include <cstring>
@@ -292,6 +293,29 @@ qint64 GlobalInputMonitor::currentTimeUs() const
     return m_backend ? m_backend->monotonicTimeUs() : 0;
 }
 
+RelativeMotionHealth GlobalInputMonitor::relativeMotionHealthSnapshot() const
+{
+    std::lock_guard<std::mutex> locker(m_relativeMotionMutex);
+    return {m_relativeAcceptedCount,
+            m_relativeTraceDeliveryCount,
+            m_relativeMotionDeliveryPosted,
+            m_hasPendingRelativeMotion,
+            m_lastRelativeAcceptedMonotonicUs,
+            m_lastRelativeDeliveredMonotonicUs};
+}
+
+InputDeviceLifecycleHealth GlobalInputMonitor::inputDeviceLifecycleHealthSnapshot() const
+{
+    std::lock_guard<std::mutex> locker(m_stateMutex);
+    InputDeviceLifecycleHealth health = m_lifecycleHealth;
+    health.activeInputDevices = static_cast<quint64>(m_openDevices.size());
+    for (const OpenDevice &device : m_openDevices) {
+        health.activePointerDevices += device.pointer ? 1 : 0;
+        health.activeKeyboardDevices += device.keyboard ? 1 : 0;
+    }
+    return health;
+}
+
 QStringList GlobalInputMonitor::diagnosticLines() const
 {
     std::lock_guard<std::mutex> locker(m_stateMutex);
@@ -322,6 +346,8 @@ void GlobalInputMonitor::refreshDevicesLocked()
     m_keyboardNodeCount = 0;
     m_pointerNodeCount = 0;
     m_openFailureCount = 0;
+    m_missingPointerDevices = 0;
+    m_missingKeyboardDevices = 0;
 
     for (EvdevDeviceInfo &device : m_devices) {
         if (!device.isPhysicalInputCandidate || device.isCatClickerVirtualDevice) {
@@ -347,17 +373,81 @@ void GlobalInputMonitor::refreshDevicesLocked()
         device.openErrorCode = 0;
         device.openErrorText.clear();
         device.permissionError.clear();
-        OpenDevice openDevice{device.eventPath, device.category, fd};
+        const bool pointer = isPointerCategory(device.category) || device.hasRelativePointer
+            || device.hasMouseButtons || device.hasWheel;
+        const bool keyboard = device.category == QStringLiteral("keyboard") || device.hasKeyboardKeys;
+        OpenDevice openDevice{device.eventPath, device.category, fd, pointer, keyboard};
         m_openDevices.push_back(openDevice);
-        if (device.category == QStringLiteral("keyboard")) {
+        if (keyboard) {
             ++m_keyboardNodeCount;
         }
-        if (isPointerCategory(device.category)) {
+        if (pointer) {
             ++m_pointerNodeCount;
         }
     }
 
     rebuildDiagnosticStateLocked();
+}
+
+bool GlobalInputMonitor::recoverMissingDevices()
+{
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> locker(m_stateMutex);
+        if (m_missingPointerDevices <= 0 && m_missingKeyboardDevices <= 0) {
+            return false;
+        }
+
+        ++m_lifecycleHealth.rescans;
+        QList<EvdevDeviceInfo> discovered = m_backend->discoverDevices();
+        QSet<QString> openPaths;
+        for (const OpenDevice &openDevice : std::as_const(m_openDevices)) {
+            openPaths.insert(openDevice.path);
+        }
+
+        for (EvdevDeviceInfo &device : discovered) {
+            if (!device.isPhysicalInputCandidate || device.isCatClickerVirtualDevice
+                || openPaths.contains(device.eventPath)) {
+                continue;
+            }
+            const bool pointer = isPointerCategory(device.category) || device.hasRelativePointer
+                || device.hasMouseButtons || device.hasWheel;
+            const bool keyboard = device.category == QStringLiteral("keyboard") || device.hasKeyboardKeys;
+            if ((!pointer || m_missingPointerDevices <= 0)
+                && (!keyboard || m_missingKeyboardDevices <= 0)) {
+                continue;
+            }
+
+            int errorCode = 0;
+            const int fd = m_backend->openDevice(device.eventPath, O_RDONLY | O_NONBLOCK | O_CLOEXEC, &errorCode);
+            if (fd < 0) {
+                continue;
+            }
+            m_openDevices.push_back({device.eventPath, device.category, fd, pointer, keyboard});
+            openPaths.insert(device.eventPath);
+            ++m_lifecycleHealth.devicesReopened;
+            if (pointer) {
+                ++m_lifecycleHealth.pointerDevicesReopened;
+                m_missingPointerDevices = std::max(0, m_missingPointerDevices - 1);
+            }
+            if (keyboard) {
+                m_missingKeyboardDevices = std::max(0, m_missingKeyboardDevices - 1);
+            }
+            changed = true;
+        }
+        m_devices = std::move(discovered);
+        m_keyboardNodeCount = 0;
+        m_pointerNodeCount = 0;
+        for (const OpenDevice &device : std::as_const(m_openDevices)) {
+            m_keyboardNodeCount += device.keyboard ? 1 : 0;
+            m_pointerNodeCount += device.pointer ? 1 : 0;
+        }
+        rebuildDiagnosticStateLocked();
+    }
+    if (changed) {
+        emit availabilityChanged();
+    }
+    return changed;
 }
 
 void GlobalInputMonitor::rebuildDiagnosticStateLocked()
@@ -411,10 +501,12 @@ void GlobalInputMonitor::workerMain()
     struct DeviceBuffer {
         QString path;
         QByteArray pendingBytes;
+        bool droppingUntilSync = false;
     };
 
     QHash<int, DeviceBuffer> buffersByFd;
     while (m_running.load()) {
+        recoverMissingDevices();
         QList<OpenDevice> devices;
         {
             std::lock_guard<std::mutex> locker(m_stateMutex);
@@ -430,7 +522,13 @@ void GlobalInputMonitor::workerMain()
 
         int pollError = 0;
         const int ready = m_backend->pollEvents(pollFds.data(), pollFds.size(), 500, &pollError);
-        if (ready <= 0) {
+        if (ready < 0) {
+            std::lock_guard<std::mutex> locker(m_stateMutex);
+            if (pollError == EINTR) ++m_lifecycleHealth.pollEintr;
+            else ++m_lifecycleHealth.pollOtherError;
+            continue;
+        }
+        if (ready == 0) {
             continue;
         }
 
@@ -443,7 +541,14 @@ void GlobalInputMonitor::workerMain()
 
         for (int i = 1; i < static_cast<int>(pollFds.size()); ++i) {
             const pollfd &pollFd = pollFds[static_cast<std::size_t>(i)];
+            const OpenDevice &device = devices.at(i - 1);
             if (pollFd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                {
+                    std::lock_guard<std::mutex> locker(m_stateMutex);
+                    m_lifecycleHealth.devicePollErr += (pollFd.revents & POLLERR) ? 1 : 0;
+                    m_lifecycleHealth.devicePollHup += (pollFd.revents & POLLHUP) ? 1 : 0;
+                    m_lifecycleHealth.devicePollNval += (pollFd.revents & POLLNVAL) ? 1 : 0;
+                }
                 retireOpenDevice(pollFd.fd);
                 buffersByFd.remove(pollFd.fd);
                 continue;
@@ -451,6 +556,11 @@ void GlobalInputMonitor::workerMain()
 
             if (!(pollFd.revents & POLLIN)) {
                 continue;
+            }
+            {
+                std::lock_guard<std::mutex> locker(m_stateMutex);
+                m_lifecycleHealth.pointerPollReadable += device.pointer ? 1 : 0;
+                m_lifecycleHealth.keyboardPollReadable += device.keyboard ? 1 : 0;
             }
 
             std::byte readBuffer[sizeof(input_event) * 16];
@@ -460,11 +570,23 @@ void GlobalInputMonitor::workerMain()
                                                            sizeof(readBuffer),
                                                            &readError);
             if (bytesRead == 0) {
+                {
+                    std::lock_guard<std::mutex> locker(m_stateMutex);
+                    ++m_lifecycleHealth.deviceReadZero;
+                }
                 retireOpenDevice(pollFd.fd);
                 buffersByFd.remove(pollFd.fd);
                 continue;
             }
             if (bytesRead < 0) {
+                {
+                    std::lock_guard<std::mutex> locker(m_stateMutex);
+                    if (readError == EAGAIN) ++m_lifecycleHealth.deviceReadEagain;
+                    else if (readError == EINTR) ++m_lifecycleHealth.deviceReadEintr;
+                    else if (readError == ENODEV) ++m_lifecycleHealth.deviceReadEnodev;
+                    else if (readError == EIO) ++m_lifecycleHealth.deviceReadEio;
+                    else ++m_lifecycleHealth.deviceReadOtherError;
+                }
                 if (readError == EAGAIN || readError == EINTR) {
                     continue;
                 }
@@ -485,6 +607,29 @@ void GlobalInputMonitor::workerMain()
                 input_event event{};
                 std::memcpy(&event, bufferState.pendingBytes.constData(), sizeof(event));
                 bufferState.pendingBytes.remove(0, eventSize);
+                {
+                    std::lock_guard<std::mutex> locker(m_stateMutex);
+                    m_lifecycleHealth.pointerEventsRead += device.pointer ? 1 : 0;
+                    m_lifecycleHealth.pointerRelEventsRead += device.pointer && event.type == EV_REL ? 1 : 0;
+                    m_lifecycleHealth.pointerButtonEventsRead += device.pointer && event.type == EV_KEY
+                            && isMouseButtonCode(event.code) ? 1 : 0;
+                    m_lifecycleHealth.keyboardEventsRead += device.keyboard && event.type == EV_KEY
+                            && !isMouseButtonCode(event.code) ? 1 : 0;
+                }
+                if (event.type == EV_SYN && event.code == SYN_DROPPED) {
+                    bufferState.droppingUntilSync = true;
+                    std::lock_guard<std::mutex> locker(m_stateMutex);
+                    ++m_lifecycleHealth.synDropped;
+                    continue;
+                }
+                if (bufferState.droppingUntilSync) {
+                    if (event.type == EV_SYN && event.code == SYN_REPORT) {
+                        bufferState.droppingUntilSync = false;
+                        std::lock_guard<std::mutex> locker(m_stateMutex);
+                        ++m_lifecycleHealth.syncRecoveries;
+                    }
+                    continue;
+                }
                 const qint64 timeUs = m_backend->monotonicTimeUs();
                 processInputEvent(event, bufferState.path, timeUs);
             }
@@ -503,8 +648,18 @@ void GlobalInputMonitor::retireOpenDevice(int fd)
             }
 
             const QString path = m_openDevices.at(i).path;
+            const bool pointer = m_openDevices.at(i).pointer;
+            const bool keyboard = m_openDevices.at(i).keyboard;
             m_backend->closeFd(fd);
             m_openDevices.removeAt(i);
+            ++m_lifecycleHealth.devicesRemoved;
+            if (pointer) {
+                ++m_lifecycleHealth.pointerDevicesRemoved;
+                ++m_missingPointerDevices;
+            }
+            if (keyboard) {
+                ++m_missingKeyboardDevices;
+            }
             for (EvdevDeviceInfo &device : m_devices) {
                 if (device.eventPath == path) {
                     device.openable = false;
@@ -567,6 +722,8 @@ void GlobalInputMonitor::publishRelativeMotion(const GlobalInputEvent &event)
         generation = m_captureForwardingGeneration;
         m_pendingRelativeMotion = event;
         m_hasPendingRelativeMotion = true;
+        ++m_relativeAcceptedCount;
+        m_lastRelativeAcceptedMonotonicUs = event.timeUs;
         if (!m_relativeMotionDeliveryPosted) {
             m_relativeMotionDeliveryPosted = true;
             postDelivery = true;
@@ -604,7 +761,11 @@ void GlobalInputMonitor::deliverPendingRelativeMotion(quint64 generation)
         m_hasPendingRelativeMotion = false;
     }
 
-    ++m_relativeTraceDeliveryCount;
+    {
+        std::lock_guard<std::mutex> locker(m_relativeMotionMutex);
+        ++m_relativeTraceDeliveryCount;
+        m_lastRelativeDeliveredMonotonicUs = event.timeUs;
+    }
     if (traceRecordingCursorEnabled()
         && (m_relativeTraceDeliveryCount == 1 || m_relativeTraceDeliveryCount % 100 == 0)) {
         qInfo().noquote() << QStringLiteral("[global-input] thread=%1 deliver %2")

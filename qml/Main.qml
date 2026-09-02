@@ -571,7 +571,9 @@ ApplicationWindow {
                                 spacing: 10
 
                                 Image {
-                                    source: "qrc:/CatClicker/branding/github-mark.svg"
+                                    source: Theme.darkMode
+                                            ? "qrc:/CatClicker/branding/github-mark-dark.svg"
+                                            : "qrc:/CatClicker/branding/github-mark-light.svg"
                                     sourceSize.width: 24
                                     sourceSize.height: 24
                                 }
@@ -757,23 +759,6 @@ ApplicationWindow {
                         font.pixelSize: 14
                     }
 
-                    Text {
-                        width: parent.width
-                        text: appController.recordingSummary
-                        color: Theme.textPrimary
-                        font.pixelSize: 14
-                        font.bold: true
-                        wrapMode: Text.Wrap
-                    }
-
-                    Text {
-                        width: parent.width
-                        text: appController.recordingDetails
-                        color: Theme.textMuted
-                        font.pixelSize: 14
-                        wrapMode: Text.Wrap
-                    }
-
                     ShortcutField {
                         id: recordShortcutField
                         label: "Record / Stop Recording"
@@ -904,18 +889,67 @@ ApplicationWindow {
                     InfoCard {
                         Layout.fillWidth: true
 
-                        Text {
-                            text: "Developer playback tests"
-                            color: Theme.textSecondary
-                            font.pixelSize: 14
+                        RowLayout {
+                            width: parent.width
+
+                            Text {
+                                text: "Diagnostics"
+                                color: Theme.textSecondary
+                                font.pixelSize: 14
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            ActionButton {
+                                text: "Copy Diagnostics"
+                                accentColor: Theme.primaryBlue
+                                implicitWidth: 190
+                                onClicked: appController.copyDiagnostics()
+                            }
                         }
 
                         Text {
                             width: parent.width
-                            text: "Pointer test stays mouse-only. Keyboard test waits about two seconds, then types into the currently focused application. Held key and held mouse tests keep a virtual input down for five seconds unless you stop early. Click test is temporarily a scheduled-move diagnostic. Scroll test injects discrete wheel steps without moving the pointer."
+                            text: "This report uses a privacy allowlist. Review the preview before copying. It excludes recorded input, coordinates, device names, and personal paths."
                             color: Theme.textMuted
-                            font.pixelSize: 14
+                            font.pixelSize: 13
                             wrapMode: Text.Wrap
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            implicitHeight: 280
+                            radius: 18
+                            color: Theme.panelBackground
+                            border.width: 1
+                            border.color: Theme.outline
+
+                            TextArea {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                readOnly: true
+                                text: appController.diagnosticsText
+                                color: Theme.textPrimary
+                                wrapMode: Text.WrapAnywhere
+                                background: null
+                                font.family: "monospace"
+                            }
+                        }
+                    }
+                }
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                active: appController.showDeveloperTools
+                sourceComponent: Component {
+                    InfoCard {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: "Developer playback tests"
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
                         }
 
                         RowLayout {
@@ -975,26 +1009,10 @@ ApplicationWindow {
                             }
                         }
 
-                        Text {
-                            width: parent.width
-                            text: "Held key stop test: keep CatClicker focused, press Play, then press the configured Stop shortcut before five seconds elapse. After stop, type lowercase text into the field below to confirm Shift was released."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
-                        }
-
                         TextField {
                             width: parent.width
                             placeholderText: "Type lowercase text here after the held key stop test"
                             selectByMouse: true
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: "Held mouse completion test: place the real cursor over the pad below, press Play, and allow the 2-second release. Held mouse stop test: stop before five seconds elapse. Compare actual mouse behavior after each path."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
                         }
 
                         Rectangle {
@@ -1088,14 +1106,6 @@ ApplicationWindow {
                             }
                         }
 
-                        Text {
-                            width: parent.width
-                            text: "Use this pad for the scheduled-move click diagnostic. Macro generation stores the pad center as the trusted coordinate for both pointer movement and click playback."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
-                        }
-
                         ActionButton {
                             width: parent.width
                             text: "Generate Scroll Test Macro"
@@ -1106,14 +1116,6 @@ ApplicationWindow {
                                 const center = scrollTestPad.mapToGlobal(scrollTestPad.width / 2, scrollTestPad.height / 2)
                                 appController.generateScrollTestMacro(center.x, center.y)
                             }
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: "Hover the real mouse over this pad, keep CatClicker focused, then press Play. The generated sequence is two wheel-down steps followed by one wheel-up step."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
                         }
 
                         Rectangle {
@@ -1220,63 +1222,6 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton
                                 onClicked: clickTestCount += 1
-                            }
-                        }
-                    }
-                }
-            }
-
-            Loader {
-                Layout.fillWidth: true
-                active: appController.showDeveloperTools
-                sourceComponent: Component {
-                    InfoCard {
-                        Layout.fillWidth: true
-
-                        RowLayout {
-                            width: parent.width
-
-                            Text {
-                                text: "Diagnostics"
-                                color: Theme.textSecondary
-                                font.pixelSize: 14
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            ActionButton {
-                                text: "Copy Diagnostics"
-                                accentColor: Theme.primaryBlue
-                                implicitWidth: 190
-                                onClicked: appController.copyDiagnostics()
-                            }
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: "This shareable report uses a privacy allowlist. Review the complete preview before copying it. It excludes recorded input, mouse coordinates, device names, and personal paths."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
-                        }
-
-                        Rectangle {
-                            width: parent.width
-                            implicitHeight: 280
-                            radius: 18
-                            color: Theme.panelBackground
-                            border.width: 1
-                            border.color: Theme.outline
-
-                            TextArea {
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                readOnly: true
-                                text: appController.diagnosticsText
-                                color: Theme.textPrimary
-                                wrapMode: Text.WrapAnywhere
-                                background: null
-                                font.family: "monospace"
                             }
                         }
                     }

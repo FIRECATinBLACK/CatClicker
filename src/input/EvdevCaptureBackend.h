@@ -17,10 +17,20 @@ struct CursorSamplerHealth {
     quint64 refreshRequests = 0;
     quint64 refreshCoalesced = 0;
     quint64 refreshCompletions = 0;
+    quint64 resolvedSampleAttempts = 0;
+    quint64 resolvedCoordinateChanges = 0;
+    quint64 resolvedIdenticalCoordinates = 0;
+    quint64 duplicateMoveSuppressions = 0;
+    quint64 consecutiveIdenticalResolvedSamples = 0;
     quint64 samplesDelivered = 0;
     quint64 deferredButtonEvents = 0;
     quint64 deferredScrollEvents = 0;
     quint64 unresolvedMouseEventsDroppedOnStop = 0;
+    qint64 lastRelTriggerMonotonicUs = 0;
+    qint64 lastRefreshRequestMonotonicUs = 0;
+    qint64 lastRefreshCompletionMonotonicUs = 0;
+    qint64 lastDuplicateSuppressionMonotonicUs = 0;
+    qint64 lastDeliveredSampleMonotonicUs = 0;
     bool refreshOutstanding = false;
     bool movementPending = false;
     bool followUpPending = false;
@@ -49,7 +59,7 @@ private:
 
     void handleGlobalEvent(const CatClicker::GlobalInputEvent &event);
     void handleSampledCursorPosition(const QPointF &position);
-    void requestMovementSample(qint64 timestampUs);
+    void requestMovementSample(qint64 timestampUs, qint64 monotonicUs);
     void emitResolvedPendingEvents(const QPointF &position);
     void flushPendingMouseEventsUnanchored();
     void resetSamplerState();

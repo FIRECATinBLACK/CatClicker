@@ -282,6 +282,12 @@ ApplicationController::ApplicationController(QObject *parent)
 
     m_elapsedTimer.setInterval(100);
     connect(&m_elapsedTimer, &QTimer::timeout, this, &ApplicationController::timingChanged);
+    m_cursorHealthTimer.setInterval(1000);
+    connect(&m_cursorHealthTimer, &QTimer::timeout, this, [this]() {
+        if (m_state == AppState::Recording) {
+            traceCursorHealth(QStringLiteral("ACTIVE"));
+        }
+    });
     connect(&m_macroRecorder, &MacroRecorder::eventCountChanged, this, &ApplicationController::macroChanged);
     connectCaptureBackend(&m_qtFocusedCaptureBackend);
     connectCaptureBackend(&m_captureBackend);
@@ -333,6 +339,7 @@ ApplicationController::ApplicationController(QObject *parent)
         m_selectedInputSender = nullptr;
         m_playbackElapsedUs = 0;
         m_elapsedTimer.stop();
+        m_cursorHealthTimer.stop();
         const bool shouldRestart = m_playbackLoopController.shouldRestartAfterFinish(finishedToken, completed, stoppedByUser);
         if (traceLoopEnabled()) {
             qInfo().noquote() << QStringLiteral("[loop] finished token=%1 completed=%2 stoppedByUser=%3 appState=%4 preference=%5 helperEnabled=%6 stopRequested=%7 shouldRestart=%8")
@@ -434,7 +441,7 @@ QString ApplicationController::diagnosticsText() const
                                         m_portalController.currentDisplayInfo(),
                                         m_cursorTracker.hasBuildSupport(),
                                         m_qtFocusedCaptureBackend.isAvailable(),
-                                        QStringLiteral("Direct COSMIC provider: %1; ScreenCast metadata provider: %2")
+                                        QStringLiteral("  Direct COSMIC: %1\n  ScreenCast metadata: %2")
                                             .arg(m_cosmicCursorProvider.statusText(), m_cursorTracker.statusText()),
                                         m_evdevInspector,
                                         m_globalInputMonitor,
@@ -728,6 +735,7 @@ void ApplicationController::startRecording(bool fromShortcut)
             m_activeCaptureBackend->stopCapture();
         }
         traceCursorHealth(QStringLiteral("RECORD STOP"));
+        m_cursorHealthTimer.stop();
         m_currentMacro = m_macroRecorder.finish();
         if (fromShortcut && m_activeCaptureBackend == &m_qtFocusedCaptureBackend) {
             trimTrailingShortcutEvents(shortcutKeyCodesForString(recordShortcut()));
@@ -765,6 +773,9 @@ void ApplicationController::startRecording(bool fromShortcut)
     m_macroRecorder.begin(m_portalController.currentDisplayInfo(), m_currentMacro.name);
     traceCursorHealth(QStringLiteral("RECORD START"));
     m_elapsedTimer.start();
+    if (qEnvironmentVariableIntValue("CATCLICKER_TRACE_CURSOR_HEALTH") == 1) {
+        m_cursorHealthTimer.start();
+    }
     setState(AppState::Recording,
              m_activeCaptureBackend == &m_captureBackend
                  ? QStringLiteral("Recording physical input globally through evdev.")
@@ -782,52 +793,80 @@ void ApplicationController::traceCursorHealth(const QString &phase) const
     }
     const CursorProviderHealth health = m_cosmicCursorProvider.healthSnapshot();
     const CursorSamplerHealth sampler = m_captureBackend.samplerHealthSnapshot();
-    const QString latest = health.latestPublished.valid
-        ? QStringLiteral("%1,%2")
-              .arg(health.latestPublished.position.x())
-              .arg(health.latestPublished.position.y())
-        : QStringLiteral("none");
+    const RelativeMotionHealth relative = m_globalInputMonitor.relativeMotionHealthSnapshot();
+    const InputDeviceLifecycleHealth input = m_globalInputMonitor.inputDeviceLifecycleHealthSnapshot();
     qInfo().noquote()
-        << QStringLiteral("[cursor-health] %1 workerAlive=%2 loops=%3 dispatches=%4 prepareOk=%5 prepareRetry=%6 polls=%7 waylandReadable=%8 wakeReadable=%9 readOk=%10 readFail=%11 dispatchPending=%12 flushFail=%13 displayError=%14 enter=%15 leave=%16 position=%17 hotspot=%18 publishes=%19 syncDone=%20 generation=%21 recreates=%22 positionAfterRecreate=%23 refreshOutstanding=%24 latest=%25 lastCallbackMonotonicUs=%26 captureSession=%27 relTriggers=%28 refreshRequests=%29 refreshCoalesced=%30 refreshCompletions=%31 samplesDelivered=%32 deferredButtons=%33 deferredScroll=%34 unresolvedDroppedOnStop=%35 samplerRefreshOutstanding=%36 movementPending=%37 followupPending=%38 pendingMouseEvents=%39")
+        << QStringLiteral("[cursor-health] phase=%1 elapsedUs=%2 captureSession=%3 relAccepted=%4 relDelivered=%5 relDeliveryPosted=%6 relPayloadPending=%7 relTriggers=%8 refreshRequests=%9 refreshCompletions=%10 resolvedAttempts=%11 resolvedChanged=%12 resolvedIdentical=%13 duplicateSuppressions=%14 consecutiveIdentical=%15 samplesDelivered=%16 refreshCoalesced=%17 samplerRefreshOutstanding=%18 movementPending=%19 followupPending=%20 pendingMouseEvents=%21 generation=%22 recreates=%23 positionAfterRecreate=%24 publishes=%25 providerRefreshOutstanding=%26 latestPublishedValid=%27 lastRelAcceptedMonotonicUs=%28 lastRelDeliveredMonotonicUs=%29 lastRelTriggerMonotonicUs=%30 lastRefreshRequestMonotonicUs=%31 providerRefreshRequestMonotonicUs=%32 lastRefreshCompletionMonotonicUs=%33 lastDuplicateSuppressionMonotonicUs=%34 lastDeliveredSampleMonotonicUs=%35 workerAlive=%36 loops=%37 dispatches=%38 wakeReadable=%39 positionCallbacks=%40")
                .arg(phase)
-               .arg(health.workerAlive ? 1 : 0)
-               .arg(health.workerLoopCount)
-               .arg(health.dispatchCount)
-               .arg(health.prepareReadSuccessCount)
-               .arg(health.prepareReadRetryCount)
-               .arg(health.pollCount)
-               .arg(health.waylandFdReadableCount)
-               .arg(health.wakeFdReadableCount)
-               .arg(health.readEventsSuccessCount)
-               .arg(health.readEventsFailureCount)
-               .arg(health.dispatchPendingCount)
-               .arg(health.flushFailureCount)
-               .arg(health.wlDisplayError)
-               .arg(health.enterCount)
-               .arg(health.leaveCount)
-               .arg(health.positionCallbackCount)
-               .arg(health.hotspotCount)
-               .arg(health.snapshotPublishCount)
-               .arg(health.syncDoneCount)
-               .arg(health.cursorSessionGeneration)
-               .arg(health.cursorSessionRecreateCount)
-               .arg(health.positionAfterRecreateCount)
-               .arg(health.cursorSessionRefreshOutstanding ? 1 : 0)
-               .arg(latest)
-               .arg(health.latestPositionCallbackMonotonicUs)
+               .arg(m_macroRecorder.elapsedUs())
                .arg(sampler.captureSessionNumber)
+               .arg(relative.acceptedTriggers)
+               .arg(relative.deliveredTriggers)
+               .arg(relative.deliveryPosted ? 1 : 0)
+               .arg(relative.payloadPending ? 1 : 0)
                .arg(sampler.relMovementTriggers)
                .arg(sampler.refreshRequests)
-               .arg(sampler.refreshCoalesced)
                .arg(sampler.refreshCompletions)
+               .arg(sampler.resolvedSampleAttempts)
+               .arg(sampler.resolvedCoordinateChanges)
+               .arg(sampler.resolvedIdenticalCoordinates)
+               .arg(sampler.duplicateMoveSuppressions)
+               .arg(sampler.consecutiveIdenticalResolvedSamples)
                .arg(sampler.samplesDelivered)
-               .arg(sampler.deferredButtonEvents)
-               .arg(sampler.deferredScrollEvents)
-               .arg(sampler.unresolvedMouseEventsDroppedOnStop)
+               .arg(sampler.refreshCoalesced)
                .arg(sampler.refreshOutstanding ? 1 : 0)
                .arg(sampler.movementPending ? 1 : 0)
                .arg(sampler.followUpPending ? 1 : 0)
-               .arg(sampler.pendingMouseEventCount);
+               .arg(sampler.pendingMouseEventCount)
+               .arg(health.cursorSessionGeneration)
+               .arg(health.cursorSessionRecreateCount)
+               .arg(health.positionAfterRecreateCount)
+               .arg(health.snapshotPublishCount)
+               .arg(health.cursorSessionRefreshOutstanding ? 1 : 0)
+               .arg(health.latestPublished.valid ? 1 : 0)
+               .arg(relative.lastAcceptedMonotonicUs)
+               .arg(relative.lastDeliveredMonotonicUs)
+               .arg(sampler.lastRelTriggerMonotonicUs)
+               .arg(sampler.lastRefreshRequestMonotonicUs)
+               .arg(health.latestRefreshRequestMonotonicUs)
+               .arg(sampler.lastRefreshCompletionMonotonicUs)
+               .arg(sampler.lastDuplicateSuppressionMonotonicUs)
+               .arg(sampler.lastDeliveredSampleMonotonicUs)
+               .arg(health.workerAlive ? 1 : 0)
+               .arg(health.workerLoopCount)
+               .arg(health.dispatchCount)
+               .arg(health.wakeFdReadableCount)
+               .arg(health.positionCallbackCount);
+    qInfo().noquote()
+        << QStringLiteral("[input-health] phase=%1 activeDevices=%2 activePointerDevices=%3 activeKeyboardDevices=%4 pointerPollReadable=%5 keyboardPollReadable=%6 pointerEventsRead=%7 pointerRelEventsRead=%8 pointerButtonEventsRead=%9 keyboardEventsRead=%10 pollHup=%11 pollErr=%12 pollNval=%13 pollEintr=%14 pollOtherError=%15 readZero=%16 readEagain=%17 readEintr=%18 readEnodev=%19 readEio=%20 readOtherError=%21 devicesRemoved=%22 pointerDevicesRemoved=%23 devicesReopened=%24 pointerDevicesReopened=%25 rescans=%26 synDropped=%27 syncRecoveries=%28")
+               .arg(phase)
+               .arg(input.activeInputDevices)
+               .arg(input.activePointerDevices)
+               .arg(input.activeKeyboardDevices)
+               .arg(input.pointerPollReadable)
+               .arg(input.keyboardPollReadable)
+               .arg(input.pointerEventsRead)
+               .arg(input.pointerRelEventsRead)
+               .arg(input.pointerButtonEventsRead)
+               .arg(input.keyboardEventsRead)
+               .arg(input.devicePollHup)
+               .arg(input.devicePollErr)
+               .arg(input.devicePollNval)
+               .arg(input.pollEintr)
+               .arg(input.pollOtherError)
+               .arg(input.deviceReadZero)
+               .arg(input.deviceReadEagain)
+               .arg(input.deviceReadEintr)
+               .arg(input.deviceReadEnodev)
+               .arg(input.deviceReadEio)
+               .arg(input.deviceReadOtherError)
+               .arg(input.devicesRemoved)
+               .arg(input.pointerDevicesRemoved)
+               .arg(input.devicesReopened)
+               .arg(input.pointerDevicesReopened)
+               .arg(input.rescans)
+               .arg(input.synDropped)
+               .arg(input.syncRecoveries);
 }
 
 void ApplicationController::stop()

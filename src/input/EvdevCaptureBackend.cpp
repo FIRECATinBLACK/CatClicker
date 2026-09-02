@@ -242,7 +242,7 @@ void EvdevCaptureBackend::handleGlobalEvent(const CatClicker::GlobalInputEvent &
         if (m_samplerEnabled) {
             // REL values are triggers only; absolute coordinates always come from the
             // current generation of COSMIC cursor metadata.
-            requestMovementSample(relativeUs);
+            requestMovementSample(relativeUs, event.timeUs);
             break;
         }
         const CursorSnapshot snapshot = m_cursorPositionProvider
@@ -274,15 +274,17 @@ void EvdevCaptureBackend::handleGlobalEvent(const CatClicker::GlobalInputEvent &
     }
 }
 
-void EvdevCaptureBackend::requestMovementSample(qint64 timestampUs)
+void EvdevCaptureBackend::requestMovementSample(qint64 timestampUs, qint64 monotonicUs)
 {
     ++m_samplerHealth.relMovementTriggers;
+    m_samplerHealth.lastRelTriggerMonotonicUs = monotonicUs;
     if (m_samplerState == SamplerState::IdleValid) {
         m_currentMovementTimestampUs = timestampUs;
         m_hasCurrentMovement = true;
         if (m_cosmicSamplerProvider && m_cosmicSamplerProvider->supersedeCursorSessionRefresh()) {
             m_samplerState = SamplerState::RefreshOutstanding;
             ++m_samplerHealth.refreshRequests;
+            m_samplerHealth.lastRefreshRequestMonotonicUs = m_monitor->currentTimeUs();
         } else {
             m_hasCurrentMovement = false;
         }
@@ -308,6 +310,8 @@ void EvdevCaptureBackend::handleSampledCursorPosition(const QPointF &position)
     }
 
     ++m_samplerHealth.refreshCompletions;
+    m_samplerHealth.lastRefreshCompletionMonotonicUs = m_monitor->currentTimeUs();
+    Q_ASSERT(m_hasCurrentMovement);
     emitResolvedPendingEvents(position);
 
     if (m_followUpRefreshRequired) {
@@ -316,6 +320,7 @@ void EvdevCaptureBackend::handleSampledCursorPosition(const QPointF &position)
         m_followUpRefreshRequired = false;
         if (m_cosmicSamplerProvider->requestCursorSessionRefresh()) {
             ++m_samplerHealth.refreshRequests;
+            m_samplerHealth.lastRefreshRequestMonotonicUs = m_monitor->currentTimeUs();
             m_samplerState = SamplerState::RefreshOutstanding;
         } else {
             m_hasCurrentMovement = false;
@@ -345,15 +350,23 @@ void EvdevCaptureBackend::emitResolvedPendingEvents(const QPointF &position)
     });
     for (const MacroEvent &event : std::as_const(resolved)) {
         if (event.type == MacroEventType::MouseMove) {
+            ++m_samplerHealth.resolvedSampleAttempts;
             const bool duplicate = m_hasLastRecordedCursorPosition
                 && event.x == m_lastRecordedCursorPosition.x()
                 && event.y == m_lastRecordedCursorPosition.y();
             if (duplicate) {
+                ++m_samplerHealth.resolvedIdenticalCoordinates;
+                ++m_samplerHealth.duplicateMoveSuppressions;
+                ++m_samplerHealth.consecutiveIdenticalResolvedSamples;
+                m_samplerHealth.lastDuplicateSuppressionMonotonicUs = m_monitor->currentTimeUs();
                 continue;
             }
+            ++m_samplerHealth.resolvedCoordinateChanges;
+            m_samplerHealth.consecutiveIdenticalResolvedSamples = 0;
             m_lastRecordedCursorPosition = QPointF(event.x, event.y);
             m_hasLastRecordedCursorPosition = true;
             ++m_samplerHealth.samplesDelivered;
+            m_samplerHealth.lastDeliveredSampleMonotonicUs = m_monitor->currentTimeUs();
         }
         emit eventCaptured(event);
     }

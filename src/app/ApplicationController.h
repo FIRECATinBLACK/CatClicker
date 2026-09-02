@@ -202,6 +202,7 @@ private:
     Settings m_settings;
     Diagnostics m_diagnostics;
     QTimer m_elapsedTimer;
+    QTimer m_cursorHealthTimer;
     PlaybackLoopController m_playbackLoopController;
     QProcess *m_permissionSetupProcess = nullptr;
 

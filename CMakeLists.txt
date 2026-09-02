@@ -167,12 +167,15 @@ qt_add_resources(CatClicker "catclicker_branding"
     FILES "${CATCLICKER_RUNTIME_ICON}"
 )
 
-set(CATCLICKER_GITHUB_MARK "${CMAKE_CURRENT_SOURCE_DIR}/assets/third_party/github-mark.svg")
-set_source_files_properties("${CATCLICKER_GITHUB_MARK}" PROPERTIES
-    QT_RESOURCE_ALIAS github-mark.svg)
+set(CATCLICKER_GITHUB_MARK_DARK "${CMAKE_CURRENT_SOURCE_DIR}/assets/third_party/github-mark.svg")
+set(CATCLICKER_GITHUB_MARK_LIGHT "${CMAKE_CURRENT_SOURCE_DIR}/assets/third_party/github-mark-light.svg")
+set_source_files_properties("${CATCLICKER_GITHUB_MARK_DARK}" PROPERTIES
+    QT_RESOURCE_ALIAS github-mark-dark.svg)
+set_source_files_properties("${CATCLICKER_GITHUB_MARK_LIGHT}" PROPERTIES
+    QT_RESOURCE_ALIAS github-mark-light.svg)
 qt_add_resources(CatClicker "catclicker_github_mark"
     PREFIX "/CatClicker/branding"
-    FILES "${CATCLICKER_GITHUB_MARK}"
+    FILES "${CATCLICKER_GITHUB_MARK_DARK}" "${CATCLICKER_GITHUB_MARK_LIGHT}"
 )
 
 add_custom_target(audit-no-network

@@ -31,5 +31,7 @@ If applicable, add screenshots to help explain your problem.
 
  - CatClicker Version [e.g. 22]
 
+**Optional: Insert CatClicker Diagnostic output (found in settings>developer info>Copy Diagnostics button)**
+
 **Additional context**
 Add any other context about the problem here.

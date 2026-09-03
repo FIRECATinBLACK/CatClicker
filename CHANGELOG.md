@@ -2,10 +2,13 @@
 
 ## Unreleased
 
-- Record physical keyboard, mouse movement, anchored buttons, drags, holds, and scroll on COSMIC Wayland.
-- Play macros through uinput with exact anchors, looping, speed control, and optional smoothing.
-- Save and load version 1 `.catmacro` files.
-- Configure global shortcuts and input permissions.
-- Provide safe diagnostics and light and dark themes.
-- Recover individual physical input devices after fatal fd loss while keeping healthy devices active.
-- Recover from pathological stale COSMIC cursor metadata with a bounded, generation-isolated source reset.
+## 0.1.0 - 2026-09-03
+
+- Record physical keyboard input, absolute mouse movement, anchored clicks, drags, holds, and scroll on COSMIC Wayland, then play macros through uinput.
+- Use trusted COSMIC cursor anchoring with safety checks that omit clicks and scrolls when no trustworthy absolute position is available.
+- Save and load version 1 `.catmacro` files, loop playback, select playback speed, and optionally smooth mouse movement.
+- Switch immediately between persistent Regular and Compact interfaces; Compact provides direct Record, Play, Stop, Open, Save, and Settings controls.
+- Persist light and dark themes, interface mode, playback options, and configurable global shortcuts.
+- Prevent accidental multiple independent application instances through per-user local IPC.
+- Guide users through input-permission setup and provide safe diagnostics with version and build identity.
+- Harden recovery from physical input-device loss and pathological stale COSMIC cursor metadata while keeping healthy inputs available.

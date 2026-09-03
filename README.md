@@ -6,7 +6,7 @@ CatClicker is a native autoclicker and macro recorder built for Pop!_OS and the 
 
 ## Status and platform support
 
-CatClicker is pre-release software. Its primary and currently supported environment is Pop!_OS 24.04 with the COSMIC desktop in a native Wayland session. Other Wayland compositors are not supported yet. Contributions for trustworthy absolute cursor backends on other compositors are welcome. X11 is not a current target.
+CatClicker 0.1.0 is early software. Its primary and currently supported environment is Pop!_OS 24.04 with the COSMIC desktop in a native Wayland session. Other Wayland compositors are not supported yet. Contributions for trustworthy absolute cursor backends on other compositors are welcome. X11 is not a current target.
 
 The current COSMIC implementation has been host tested for keyboard and mouse recording, anchored clicks and scroll, drags, long holds, repeated sessions, global hotkeys, save and load, looping, and optional smooth playback.
 
@@ -19,7 +19,10 @@ The current COSMIC implementation has been host tested for keyboard and mouse re
 - Global record, play, and stop shortcuts
 - Looping and selectable playback speed
 - Optional cosmetic smoothing between recorded mouse positions
+- Regular and Compact interface modes; Compact provides a small toolbar with direct Record, Play, Stop, Open, Save, and Settings controls
 - Light and dark CatClicker themes
+
+Regular and Compact modes switch immediately, and the selected mode persists between launches. CatClicker also prevents accidental multiple independent instances; launching it again asks the existing window to activate.
 
 ## Important limitations
 
@@ -27,6 +30,8 @@ The current COSMIC implementation has been host tested for keyboard and mouse re
 - Input capture and uinput need explicit device permissions.
 - A macro replays input into whichever application receives it. Review macros from other people before playback.
 - CatClicker never derives absolute coordinates by adding relative mouse deltas. A click or scroll without a trusted absolute position is dropped.
+
+CatClicker does not implement an Always-on-top setting. On current COSMIC, use the window or titlebar menu's **Sticky window** action when you want CatClicker to remain above ordinary windows and visible across workspaces. COSMIC controls this state; CatClicker does not set it programmatically.
 
 ## Build requirements
 

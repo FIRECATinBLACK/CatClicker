@@ -4,6 +4,40 @@
 
 CatClicker is a native autoclicker and macro recorder built for Pop!_OS and the COSMIC desktop on Wayland.
 
+## Interface
+
+CatClicker provides Regular and Compact interfaces in both Light and Dark modes.
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Light mode</th>
+      <th>Dark mode</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Regular</th>
+      <td><strong>Regular — Light</strong><br><img src="assets/readme/regularui-light.png" alt="CatClicker Regular interface in Light mode" width="100%"></td>
+      <td><strong>Regular — Dark</strong><br><img src="assets/readme/regularui-dark.png" alt="CatClicker Regular interface in Dark mode" width="100%"></td>
+    </tr>
+    <tr>
+      <th>Compact</th>
+      <td><strong>Compact — Light</strong><br><img src="assets/readme/compactui-light.png" alt="CatClicker Compact interface in Light mode" width="100%"></td>
+      <td><strong>Compact — Dark</strong><br><img src="assets/readme/compactui-dark.png" alt="CatClicker Compact interface in Dark mode" width="100%"></td>
+    </tr>
+  </tbody>
+</table>
+
+CatClicker currently ships with Light and Dark modes. The application palette is centralized in `qml/Theme.qml`, making the visual style straightforward to customize or extend in code. Additional selectable themes are not implemented yet.
+
+## Demo
+
+A full CatClicker workflow demonstration, including macro recording and playback, file interaction, and both interface modes.
+
+<img src="assets/readme/catclickerdisplay.gif" alt="CatClicker recording and replaying a macro on COSMIC Wayland" width="100%">
+
 ## Status and platform support
 
 CatClicker 0.1.0 is early software. Its primary and currently supported environment is Pop!_OS 24.04 with the COSMIC desktop in a native Wayland session. Other Wayland compositors are not supported yet. Contributions for trustworthy absolute cursor backends on other compositors are welcome. X11 is not a current target.

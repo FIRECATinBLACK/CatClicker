@@ -30,8 +30,8 @@ QString Diagnostics::generateReport(const PortalCapabilities &capabilities,
     QStringList lines;
     lines << QStringLiteral("CatClicker safe debug report");
     lines << QStringLiteral("Preview this complete report before sharing.");
-    lines << QStringLiteral("CatClicker version: %1").arg(QCoreApplication::applicationVersion());
-    lines << QStringLiteral("Git commit: %1").arg(QStringLiteral(CATCLICKER_GIT_COMMIT));
+    lines << QStringLiteral("Version: %1").arg(QCoreApplication::applicationVersion());
+    lines << QStringLiteral("Build commit: %1").arg(QStringLiteral(CATCLICKER_GIT_COMMIT));
 #ifdef NDEBUG
     lines << QStringLiteral("Build type: Release");
 #else

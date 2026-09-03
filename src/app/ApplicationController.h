@@ -40,6 +40,9 @@ class ApplicationController : public QObject {
     Q_PROPERTY(bool loopPlaybackEnabled READ loopPlaybackEnabled WRITE setLoopPlaybackEnabled NOTIFY loopPlaybackChanged)
     Q_PROPERTY(bool smoothMousePlaybackEnabled READ smoothMousePlaybackEnabled WRITE setSmoothMousePlaybackEnabled NOTIFY smoothMousePlaybackChanged)
     Q_PROPERTY(bool showDeveloperTools READ showDeveloperTools WRITE setShowDeveloperTools NOTIFY showDeveloperToolsChanged)
+    Q_PROPERTY(bool compactInterface READ compactInterface WRITE setCompactInterface NOTIFY interfaceModeChanged)
+    Q_PROPERTY(QString applicationVersion READ applicationVersion CONSTANT)
+    Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
     Q_PROPERTY(QString recordShortcut READ recordShortcut WRITE setRecordShortcut NOTIFY shortcutsChanged)
     Q_PROPERTY(QString playShortcut READ playShortcut WRITE setPlayShortcut NOTIFY shortcutsChanged)
     Q_PROPERTY(QString stopShortcut READ stopShortcut WRITE setStopShortcut NOTIFY shortcutsChanged)
@@ -93,6 +96,9 @@ public:
     bool loopPlaybackEnabled() const;
     bool smoothMousePlaybackEnabled() const;
     bool showDeveloperTools() const;
+    bool compactInterface() const;
+    QString applicationVersion() const;
+    QString buildCommit() const;
     QString recordShortcut() const;
     QString playShortcut() const;
     QString stopShortcut() const;
@@ -123,6 +129,7 @@ public:
     void setLoopPlaybackEnabled(bool value);
     void setSmoothMousePlaybackEnabled(bool value);
     void setShowDeveloperTools(bool value);
+    void setCompactInterface(bool value);
     void setDarkMode(bool value);
     void setRecordShortcut(const QString &value);
     void setPlayShortcut(const QString &value);
@@ -161,6 +168,7 @@ signals:
     void loopPlaybackChanged();
     void smoothMousePlaybackChanged();
     void showDeveloperToolsChanged();
+    void interfaceModeChanged();
     void shortcutsChanged();
     void timingChanged();
     void permissionPromptChanged();
@@ -178,6 +186,7 @@ private:
     bool m_loopPlaybackEnabled = false;
     bool m_smoothMousePlaybackEnabled = false;
     bool m_showDeveloperTools = false;
+    bool m_compactInterface = false;
     QString m_macroPath;
     QString m_selectedPlaybackBackend;
     QString m_playbackBackendReason;

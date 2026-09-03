@@ -8,6 +8,8 @@
 #include "../src/input/GlobalInputMonitor.h"
 #include "../src/input/QtFocusedCaptureBackend.h"
 #include "../src/app/PlaybackLoopController.h"
+#include "../src/app/SingleInstanceCoordinator.h"
+#include "../src/diagnostics/Diagnostics.h"
 #include "../src/input/UinputInputSender.h"
 #include "../src/input/UinputIo.h"
 #include "../src/input/VirtualDeviceIdentity.h"
@@ -16,6 +18,8 @@
 #include "../src/macro/MacroPlayer.h"
 #include "../src/macro/MacroRecorder.h"
 #include "../src/persistence/MacroSerializer.h"
+#include "../src/persistence/Settings.h"
+#include "BuildConfig.h"
 
 #include <QtCore/QByteArray>
 #include <QtCore/QCoreApplication>
@@ -23,7 +27,9 @@
 #include <QtCore/QEventLoop>
 #include <QtCore/QHash>
 #include <QtCore/QTemporaryDir>
+#include <QtCore/QSettings>
 #include <QtCore/QTimer>
+#include <QtCore/QUuid>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeySequence>
 #include <QtGui/QMouseEvent>
@@ -548,6 +554,9 @@ private slots:
     void fileChooserResponseSuccess();
     void fileChooserResponseCancelled();
     void fileChooserResponseMalformed();
+    void interfaceModeDefaultsRegularAndPersists();
+    void secondInstanceNotifiesPrimaryAndExits();
+    void versionIsExposedInSafeDiagnostics();
 };
 
 static QList<QPair<quint16, qint32>> keyEventPairsForCode(const QVector<input_event> &events, quint16 code)
@@ -3581,6 +3590,60 @@ void MacroCoreTests::fileChooserResponseMalformed()
         {{QStringLiteral("uris"), QStringList{QStringLiteral("file:///tmp/a.catmacro"), QStringLiteral("file:///tmp/b.catmacro")}}});
     QCOMPARE(parsed.disposition, FileChooserPortal::ResponseDisposition::Failed);
     QVERIFY(parsed.error.contains(QStringLiteral("usable URI")));
+}
+
+void MacroCoreTests::interfaceModeDefaultsRegularAndPersists()
+{
+    QTemporaryDir settingsDirectory;
+    QVERIFY(settingsDirectory.isValid());
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, settingsDirectory.path());
+    QSettings::setPath(QSettings::NativeFormat, QSettings::SystemScope, settingsDirectory.path());
+
+    Settings initialSettings;
+    QVERIFY(!initialSettings.compactInterface());
+    initialSettings.setCompactInterface(true);
+
+    Settings reloadedSettings;
+    QVERIFY(reloadedSettings.compactInterface());
+
+    QSettings storedSettings(QStringLiteral("CatClicker"), QStringLiteral("CatClicker"));
+    QCOMPARE(storedSettings.value(QStringLiteral("ui/interfaceMode")).toString(), QStringLiteral("Compact"));
+}
+
+void MacroCoreTests::secondInstanceNotifiesPrimaryAndExits()
+{
+    const QString serverName = QStringLiteral("catclicker-test-%1")
+                                   .arg(QUuid::createUuid().toString(QUuid::Id128));
+
+    SingleInstanceCoordinator primary(serverName);
+    const auto primaryResult = primary.start();
+    if (primaryResult == SingleInstanceCoordinator::StartResult::Error
+        && primary.errorString().contains(QStringLiteral("Unknown error 1"))) {
+        QSKIP("The execution sandbox does not permit Unix-domain local sockets.");
+    }
+    QVERIFY2(primaryResult == SingleInstanceCoordinator::StartResult::Primary,
+             qPrintable(primary.errorString()));
+    QSignalSpy activationSpy(&primary, &SingleInstanceCoordinator::activationRequested);
+
+    SingleInstanceCoordinator secondary(serverName);
+    QCOMPARE(secondary.start(), SingleInstanceCoordinator::StartResult::Secondary);
+    QTRY_COMPARE(activationSpy.count(), 1);
+}
+
+void MacroCoreTests::versionIsExposedInSafeDiagnostics()
+{
+    QCoreApplication::setApplicationVersion(QStringLiteral(CATCLICKER_VERSION));
+    Diagnostics diagnostics;
+    PortalCapabilities capabilities;
+    MacroDisplayInfo display;
+    EvdevDeviceInspector inspector;
+    GlobalInputMonitor monitor;
+    MockInputSenderBackend backend;
+    const QString report = diagnostics.generateReport(capabilities, display, false, true,
+                                                       QStringLiteral("unavailable"), inspector,
+                                                       monitor, {}, {}, &backend);
+    QVERIFY(report.contains(QStringLiteral("Version: %1").arg(QStringLiteral(CATCLICKER_VERSION))));
+    QVERIFY(report.contains(QStringLiteral("Build commit: %1").arg(QStringLiteral(CATCLICKER_GIT_COMMIT))));
 }
 
 QTEST_MAIN(MacroCoreTests)

@@ -26,6 +26,7 @@ Button {
         border.color: root.enabled ? Qt.tint(root.accentColor, Theme.outlineStrong) : Theme.outline
         gradient: Gradient {
             GradientStop { position: 0.0; color: root.enabled ? root.accentHighlight : Theme.buttonDisabled }
+            GradientStop { position: 0.42; color: root.enabled ? root.accentHighlight : Theme.buttonDisabled }
             GradientStop { position: 0.55; color: root.enabled ? root.accentColor : Theme.buttonDisabled }
             GradientStop { position: 1.0; color: root.enabled ? root.accentShadow : Theme.buttonDisabled }
         }

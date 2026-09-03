@@ -6,10 +6,12 @@ QtObject {
 
     readonly property color catDark: "#3E3376"
     readonly property color catDarkFoundation: "#362D6C"
-    readonly property color pinkHighlight: "#FDABCB"
-    readonly property color pinkShadow: "#FB89B1"
-    readonly property color blueHighlight: "#98ABF3"
-    readonly property color blueShadow: "#7087EB"
+    readonly property color pinkHighlight: "#FDAACB"
+    readonly property color pinkMain: "#FC8BB2"
+    readonly property color pinkShadow: "#DD87BB"
+    readonly property color blueHighlight: "#84A1EF"
+    readonly property color blueMain: "#7289EC"
+    readonly property color blueShadow: "#878ADF"
     readonly property color backgroundAccentPink: darkMode ? pinkShadow : pinkHighlight
     readonly property color backgroundAccentBlue: darkMode ? blueShadow : blueHighlight
 
@@ -26,8 +28,8 @@ QtObject {
     readonly property color cardHighlight: darkMode ? "#493D7F" : "#ffffff"
     readonly property color panelBackground: darkMode ? "#211D38" : "#fffdfd"
 
-    readonly property color primaryPink: backgroundAccentPink
-    readonly property color primaryBlue: backgroundAccentBlue
+    readonly property color primaryPink: pinkMain
+    readonly property color primaryBlue: blueMain
     readonly property color primaryLavender: darkMode ? "#C7B1D4" : "#b397ca"
     readonly property color stopAccent: darkMode ? "#dca6c4" : "#cf8fae"
 

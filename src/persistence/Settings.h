@@ -20,6 +20,7 @@ public:
     bool loopPlaybackEnabled() const;
     bool smoothMousePlaybackEnabled() const;
     bool showDeveloperTools() const;
+    bool compactInterface() const;
 
     void setDarkMode(bool value);
     void setRecordShortcut(const QString &value);
@@ -29,6 +30,7 @@ public:
     void setLoopPlaybackEnabled(bool value);
     void setSmoothMousePlaybackEnabled(bool value);
     void setShowDeveloperTools(bool value);
+    void setCompactInterface(bool value);
 
 private:
     mutable QSettings m_settings;

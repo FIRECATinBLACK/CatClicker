@@ -17,27 +17,100 @@ ApplicationWindow {
     property int scrollDownCount: 0
     property int heldMousePressCount: 0
     property int heldMouseReleaseCount: 0
+    property real regularWindowWidth: 1100
+    property real regularWindowHeight: 820
+    readonly property real compactWindowWidth: 540
+    readonly property real compactWindowHeight: 68
+    property bool modeTransitionInProgress: false
+    property bool compactModeApplied: false
+    onWidthChanged: {
+        if (!modeTransitionInProgress && !compactModeApplied) regularWindowWidth = width
+    }
+    onHeightChanged: {
+        if (!modeTransitionInProgress && !compactModeApplied) regularWindowHeight = height
+    }
 
-    Popup {
-        id: settingsPopup
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        dim: true
-        width: Math.min(rootWindow.width - 48, 420)
-        x: (parent.width - width) / 2
-        y: Math.max(24, (parent.height - height) / 2)
-        padding: 24
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle {
-            radius: 28
-            color: Theme.cardBackground
-            border.width: 1
-            border.color: Theme.outlineStrong
+    function applyInterfaceMode() {
+        settingsWindow.close()
+        modeTransitionInProgress = true
+        if (appController.compactInterface && !compactModeApplied) {
+            regularWindowWidth = Math.max(rootWindow.width, 960)
+            regularWindowHeight = Math.max(rootWindow.height, 720)
+        }
+        Qt.callLater(function() {
+            if (appController.compactInterface) {
+                rootWindow.minimumWidth = compactWindowWidth
+                rootWindow.maximumWidth = compactWindowWidth
+                rootWindow.minimumHeight = compactWindowHeight
+                rootWindow.maximumHeight = compactWindowHeight
+                rootWindow.width = compactWindowWidth
+                rootWindow.height = compactWindowHeight
+            } else {
+                rootWindow.maximumWidth = 16777215
+                rootWindow.maximumHeight = 16777215
+                rootWindow.minimumWidth = 960
+                rootWindow.minimumHeight = 720
+                rootWindow.width = Math.max(regularWindowWidth, 960)
+                rootWindow.height = Math.max(regularWindowHeight, 720)
+            }
+            Qt.callLater(function() {
+                rootWindow.compactModeApplied = appController.compactInterface
+                rootWindow.modeTransitionInProgress = false
+            })
+        })
+    }
+
+    function openSettings() {
+        settingsWindow.show()
+        settingsWindow.requestActivate()
+    }
+
+    function closeSettingsIfInactiveLater() {
+        Qt.callLater(function() {
+            if (settingsWindow.visible && !settingsWindow.active
+                    && !settingsWindow.internalPopupOpen) settingsWindow.close()
+        })
+    }
+
+    Connections {
+        target: appController
+        function onInterfaceModeChanged() {
+            rootWindow.applyInterfaceMode()
+        }
+    }
+
+    Window {
+        id: settingsWindow
+        property bool internalPopupOpen: interfaceModeCombo.popup.visible
+        visible: false
+        width: 460
+        height: 720
+        minimumWidth: 420
+        minimumHeight: 560
+        title: "CatClicker Settings"
+        color: Theme.windowBackground
+        transientParent: rootWindow
+        onActiveChanged: {
+            if (visible && !active) rootWindow.closeSettingsIfInactiveLater()
         }
 
-        contentItem: Column {
-            spacing: 16
+        Connections {
+            target: interfaceModeCombo.popup
+            function onClosed() {
+                rootWindow.closeSettingsIfInactiveLater()
+            }
+        }
+
+        Flickable {
+            anchors.fill: parent
+            anchors.margins: 24
+            contentHeight: settingsColumn.implicitHeight
+            clip: true
+
+          Column {
+            id: settingsColumn
+            width: parent.width
+            spacing: 12
 
             Text {
                 text: "Settings"
@@ -48,53 +121,10 @@ ApplicationWindow {
 
             Text {
                 width: parent.width
-                text: "Compact app settings for the current development phase."
+                text: "Window, playback, and interface settings."
                 color: Theme.textSecondary
                 font.pixelSize: 14
                 wrapMode: Text.Wrap
-            }
-
-            Rectangle {
-                width: parent.width
-                implicitHeight: settingsToolsRow.implicitHeight + 32
-                radius: 18
-                color: Theme.cardBackgroundAlt
-                border.width: 1
-                border.color: Theme.outline
-
-                RowLayout {
-                    id: settingsToolsRow
-                    anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 14
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-
-                        Text {
-                            text: "Developer Info"
-                            color: Theme.textPrimary
-                            font.pixelSize: 16
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Show implementation details, safe diagnostics, and developer test controls. User-facing errors stay visible."
-                            color: Theme.textMuted
-                            font.pixelSize: 13
-                            wrapMode: Text.Wrap
-                        }
-                    }
-
-                    ToggleSwitch {
-                        checked: appController.showDeveloperTools
-                        onToggledByUser: function(checked) {
-                            appController.showDeveloperTools = checked
-                        }
-                    }
-                }
             }
 
             Rectangle {
@@ -142,6 +172,118 @@ ApplicationWindow {
 
             Rectangle {
                 width: parent.width
+                implicitHeight: interfaceModeRow.implicitHeight + 32
+                radius: 18
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+
+                RowLayout {
+                    id: interfaceModeRow
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 14
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Text {
+                            text: "Interface mode"
+                            color: Theme.textPrimary
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Choose the full interface or a small toolbar."
+                            color: Theme.textMuted
+                            font.pixelSize: 13
+                            wrapMode: Text.Wrap
+                        }
+                    }
+
+                    StyledComboBox {
+                        id: interfaceModeCombo
+                        model: ["Regular", "Compact"]
+                        currentIndex: appController.compactInterface ? 1 : 0
+                        implicitWidth: 130
+                        onActivated: {
+                            settingsWindow.close()
+                            appController.compactInterface = currentIndex === 1
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                implicitHeight: loopSettingsRow.implicitHeight + 32
+                radius: 18
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+
+                RowLayout {
+                    id: loopSettingsRow
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 14
+                    Text { Layout.fillWidth: true; text: "Loop playback"; color: Theme.textPrimary; font.pixelSize: 16; font.bold: true }
+                    ToggleSwitch {
+                        checked: appController.loopPlaybackEnabled
+                        onToggledByUser: function(checked) {
+                            appController.loopPlaybackEnabled = checked
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                implicitHeight: themeSettingsRow.implicitHeight + 32
+                radius: 18
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+                RowLayout {
+                    id: themeSettingsRow
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 14
+                    Text { Layout.fillWidth: true; text: "Dark theme"; color: Theme.textPrimary; font.pixelSize: 16; font.bold: true }
+                    ToggleSwitch {
+                        checked: appController.darkMode
+                        onToggledByUser: function(checked) {
+                            appController.darkMode = checked
+                            Theme.darkMode = checked
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                implicitHeight: settingsShortcutColumn.implicitHeight + 32
+                radius: 18
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+                Column {
+                    id: settingsShortcutColumn
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 10
+                    Text { text: "Shortcuts"; color: Theme.textPrimary; font.pixelSize: 16; font.bold: true }
+                    ShortcutField { label: "Record / Stop Recording"; value: appController.recordShortcut; onShortcutEdited: function(value) { appController.recordShortcut = value } }
+                    ShortcutField { label: "Play"; value: appController.playShortcut; onShortcutEdited: function(value) { appController.playShortcut = value } }
+                    ShortcutField { label: "Stop Playback"; value: appController.stopShortcut; onShortcutEdited: function(value) { appController.stopShortcut = value } }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
                 implicitHeight: 52
                 visible: appController.inputPermissionSetupRequired
                 radius: 16
@@ -153,7 +295,6 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 10
-
                     Text {
                         Layout.fillWidth: true
                         text: appController.inputPermissionStateText
@@ -161,17 +302,56 @@ ApplicationWindow {
                         font.pixelSize: 13
                         wrapMode: Text.Wrap
                     }
-
                     ActionButton {
                         text: "Set up input permissions"
                         accentColor: Theme.primaryPink
                         implicitWidth: 205
                         onClicked: {
-                            settingsPopup.close()
+                            settingsWindow.close()
                             appController.showPermissionSetup()
                         }
                     }
                 }
+            }
+
+            Rectangle {
+                width: parent.width
+                implicitHeight: settingsToolsRow.implicitHeight + 32
+                radius: 18
+                color: Theme.cardBackgroundAlt
+                border.width: 1
+                border.color: Theme.outline
+
+                RowLayout {
+                    id: settingsToolsRow
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 14
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Text { text: "Developer Info"; color: Theme.textPrimary; font.pixelSize: 16; font.bold: true }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Show implementation details, safe diagnostics, and developer test controls."
+                            color: Theme.textMuted
+                            font.pixelSize: 13
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                    ToggleSwitch {
+                        checked: appController.showDeveloperTools
+                        onToggledByUser: function(checked) { appController.showDeveloperTools = checked }
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                text: "CatClicker " + appController.applicationVersion
+                color: Theme.textMuted
+                font.pixelSize: 12
             }
 
             Rectangle {
@@ -193,9 +373,10 @@ ApplicationWindow {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: settingsPopup.close()
+                    onClicked: settingsWindow.close()
                 }
             }
+          }
         }
     }
 
@@ -347,6 +528,7 @@ ApplicationWindow {
 
     Component.onCompleted: {
         Theme.darkMode = appController.darkMode
+        rootWindow.applyInterfaceMode()
     }
 
     Rectangle {
@@ -437,7 +619,82 @@ ApplicationWindow {
         onActivated: appController.stop()
     }
 
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: 8
+        visible: appController.compactInterface
+        radius: 24
+        color: Theme.cardBackground
+        border.width: 1
+        border.color: Theme.outlineStrong
+
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: 8
+
+            Image {
+                Layout.preferredWidth: 44
+                Layout.preferredHeight: 44
+                source: "qrc:/CatClicker/branding/catclicker.png"
+                fillMode: Image.PreserveAspectFit
+                Layout.rightMargin: 4
+            }
+
+            StatusPill {
+                Layout.preferredHeight: 32
+                Layout.rightMargin: 4
+                text: appController.appState === "Recording" ? "REC"
+                    : appController.appState === "Playing" ? "PLAY" : "IDLE"
+                accentColor: appController.appState === "Recording" ? Theme.primaryPink
+                    : appController.appState === "Playing" ? Theme.primaryBlue : Theme.primaryLavender
+            }
+
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/record.svg"
+                toolTipText: "Record"
+                accentColor: Theme.primaryPink
+                enabled: appController.appState !== "Playing" && appController.appState !== "Stopping"
+                onClicked: appController.startRecording(false)
+            }
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/play.svg"
+                toolTipText: "Play"
+                accentColor: Theme.primaryBlue
+                enabled: appController.appState !== "Recording"
+                    && appController.appState !== "Playing"
+                    && appController.appState !== "Stopping"
+                onClicked: appController.startPlayback()
+            }
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/stop.svg"
+                toolTipText: "Stop"
+                accentColor: Theme.stopAccent
+                enabled: appController.appState === "Playing"
+                onClicked: appController.stop()
+            }
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/open.svg"
+                toolTipText: "Open macro"
+                accentColor: Theme.primaryPink
+                onClicked: appController.loadMacro()
+            }
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/save.svg"
+                toolTipText: "Save macro"
+                accentColor: Theme.primaryBlue
+                onClicked: appController.saveMacro()
+            }
+            CompactIconButton {
+                iconSource: "qrc:/CatClicker/compact/assets/icons/compact/settings.svg"
+                toolTipText: "Settings"
+                accentColor: Theme.primaryLavender
+                onClicked: rootWindow.openSettings()
+            }
+        }
+    }
+
     ScrollView {
+        visible: !appController.compactInterface
         anchors.fill: parent
         contentWidth: availableWidth
         leftPadding: 32
@@ -458,7 +715,7 @@ ApplicationWindow {
                     spacing: 18
 
                     RowLayout {
-                        width: parent.width
+                        Layout.fillWidth: true
                         spacing: 18
 
                         RowLayout {
@@ -509,11 +766,11 @@ ApplicationWindow {
                     }
 
                     Flow {
-                        width: parent.width
-                        spacing: 12
+                        Layout.fillWidth: true
+                        spacing: 10
 
                         Rectangle {
-                            width: 220
+                            width: 180
                             height: 78
                             radius: 20
                             color: Theme.cardBackgroundAlt
@@ -522,21 +779,25 @@ ApplicationWindow {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 12
+                                anchors.margins: 12
+                                spacing: 8
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     spacing: 2
 
                                     Text {
                                         text: "Loop playback"
+                                        Layout.fillWidth: true
                                         color: Theme.textSecondary
                                         font.pixelSize: 13
+                                        elide: Text.ElideRight
                                     }
 
                                     Text {
                                         text: appController.loopPlaybackEnabled ? "On" : "Off"
+                                        Layout.fillWidth: true
                                         color: Theme.textPrimary
                                         font.pixelSize: 16
                                         font.bold: true
@@ -555,7 +816,7 @@ ApplicationWindow {
                         }
 
                         Rectangle {
-                            width: 200
+                            width: 170
                             height: 78
                             radius: 20
                             color: Theme.cardBackgroundAlt
@@ -564,24 +825,28 @@ ApplicationWindow {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 12
+                                anchors.margins: 12
+                                spacing: 8
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     spacing: 2
 
                                     Text {
                                         text: "Theme"
+                                        Layout.fillWidth: true
                                         color: Theme.textSecondary
                                         font.pixelSize: 13
                                     }
 
                                     Text {
                                         text: appController.darkMode ? "Dark mode" : "Light mode"
+                                        Layout.fillWidth: true
                                         color: Theme.textPrimary
                                         font.pixelSize: 16
                                         font.bold: true
+                                        elide: Text.ElideRight
                                     }
                                 }
 
@@ -598,7 +863,53 @@ ApplicationWindow {
                         }
 
                         Rectangle {
-                            width: 150
+                            width: 190
+                            height: 78
+                            radius: 20
+                            color: Theme.cardBackgroundAlt
+                            border.width: 1
+                            border.color: appController.compactInterface ? Theme.primaryBlue : Theme.outline
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    spacing: 2
+
+                                    Text {
+                                        text: "Compact mode"
+                                        Layout.fillWidth: true
+                                        color: Theme.textSecondary
+                                        font.pixelSize: 13
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        text: appController.compactInterface ? "On" : "Off"
+                                        Layout.fillWidth: true
+                                        color: Theme.textPrimary
+                                        font.pixelSize: 16
+                                        font.bold: true
+                                    }
+                                }
+
+                                ToggleSwitch {
+                                    Layout.preferredWidth: 58
+                                    Layout.alignment: Qt.AlignVCenter
+                                    checked: appController.compactInterface
+                                    onToggledByUser: function(checked) {
+                                        appController.compactInterface = checked
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 120
                             height: 78
                             radius: 20
                             color: Theme.cardBackgroundAlt
@@ -633,7 +944,7 @@ ApplicationWindow {
                         }
 
                         Rectangle {
-                            width: 168
+                            width: 120
                             height: 78
                             radius: 20
                             color: Qt.rgba(Theme.primaryLavender.r, Theme.primaryLavender.g, Theme.primaryLavender.b, Theme.darkMode ? 0.18 : 0.14)
@@ -642,8 +953,8 @@ ApplicationWindow {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 12
+                                anchors.margins: 12
+                                spacing: 8
 
                                 Text {
                                     text: "Settings"
@@ -664,7 +975,7 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: settingsPopup.open()
+                                onClicked: rootWindow.openSettings()
                             }
                         }
                     }
@@ -791,6 +1102,7 @@ ApplicationWindow {
                 InfoCard {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
 
                     Text {
                         text: "Shortcuts"
@@ -885,6 +1197,7 @@ ApplicationWindow {
                 InfoCard {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
 
                     Text {
                         text: "Files"

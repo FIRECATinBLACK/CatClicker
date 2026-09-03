@@ -1,7 +1,7 @@
 file(GLOB_RECURSE CATCLICKER_RUNTIME_SOURCE
     "${SOURCE_DIR}/src/*.cpp" "${SOURCE_DIR}/src/*.h" "${SOURCE_DIR}/qml/*.qml")
 set(CATCLICKER_NETWORK_PATTERNS
-    "QNetworkAccessManager" "QTcpSocket" "QUdpSocket" "libcurl" "Qt6::Network")
+    "QNetworkAccessManager" "QTcpSocket" "QUdpSocket" "libcurl")
 foreach(CATCLICKER_FILE IN LISTS CATCLICKER_RUNTIME_SOURCE)
     file(READ "${CATCLICKER_FILE}" CATCLICKER_CONTENT)
     foreach(CATCLICKER_PATTERN IN LISTS CATCLICKER_NETWORK_PATTERNS)

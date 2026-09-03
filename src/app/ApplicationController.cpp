@@ -2,6 +2,8 @@
 
 #include "BuildConfig.h"
 
+#include <QtCore/QCoreApplication>
+
 #include "../input/PlaybackBackendSelector.h"
 #include "../persistence/MacroSerializer.h"
 
@@ -498,6 +500,21 @@ bool ApplicationController::showDeveloperTools() const
     return m_showDeveloperTools;
 }
 
+bool ApplicationController::compactInterface() const
+{
+    return m_compactInterface;
+}
+
+QString ApplicationController::applicationVersion() const
+{
+    return QCoreApplication::applicationVersion();
+}
+
+QString ApplicationController::buildCommit() const
+{
+    return QStringLiteral(CATCLICKER_GIT_COMMIT);
+}
+
 QString ApplicationController::recordShortcut() const
 {
     return m_shortcuts.recordShortcut();
@@ -707,6 +724,16 @@ void ApplicationController::setShowDeveloperTools(bool value)
     m_showDeveloperTools = value;
     m_settings.setShowDeveloperTools(value);
     emit showDeveloperToolsChanged();
+}
+
+void ApplicationController::setCompactInterface(bool value)
+{
+    if (m_compactInterface == value) {
+        return;
+    }
+    m_compactInterface = value;
+    m_settings.setCompactInterface(value);
+    emit interfaceModeChanged();
 }
 
 void ApplicationController::setDarkMode(bool value)
@@ -1216,6 +1243,7 @@ void ApplicationController::loadSettings()
     m_loopPlaybackEnabled = m_settings.loopPlaybackEnabled();
     m_smoothMousePlaybackEnabled = m_settings.smoothMousePlaybackEnabled();
     m_showDeveloperTools = m_settings.showDeveloperTools();
+    m_compactInterface = m_settings.compactInterface();
     m_shortcuts.setRecordShortcut(m_settings.recordShortcut());
     m_shortcuts.setPlayShortcut(m_settings.playShortcut());
     m_shortcuts.setStopShortcut(m_settings.stopShortcut());

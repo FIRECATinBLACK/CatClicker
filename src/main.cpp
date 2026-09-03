@@ -1,8 +1,10 @@
 #include "app/ApplicationController.h"
+#include "app/SingleInstanceCoordinator.h"
 #include "BuildConfig.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QIcon>
+#include <QtGui/QWindow>
 #include <QtCore/QDebug>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlContext>
@@ -39,6 +41,17 @@ int main(int argc, char *argv[])
     app.setDesktopFileName(QStringLiteral("catclicker"));
     app.setWindowIcon(QIcon(QStringLiteral(":/CatClicker/branding/catclicker.png")));
 
+    CatClicker::SingleInstanceCoordinator instanceCoordinator;
+    const auto instanceResult = instanceCoordinator.start();
+    if (instanceResult == CatClicker::SingleInstanceCoordinator::StartResult::Secondary) {
+        return 0;
+    }
+    if (instanceResult == CatClicker::SingleInstanceCoordinator::StartResult::Error) {
+        qCritical() << "Could not establish the CatClicker single-instance endpoint:"
+                    << instanceCoordinator.errorString();
+        return 1;
+    }
+
     qmlRegisterType<CatClicker::ApplicationController>("CatClicker", 1, 0, "ApplicationController");
 
     traceStartup("constructing ApplicationController");
@@ -63,6 +76,14 @@ int main(int argc, char *argv[])
     if (engine.rootObjects().isEmpty()) {
         qCritical() << "[startup] no QML root object";
         return 1;
+    }
+
+    if (QWindow *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
+        QObject::connect(&instanceCoordinator, &CatClicker::SingleInstanceCoordinator::activationRequested,
+                         window, [window]() {
+                             if (!window->isVisible()) window->show();
+                             window->requestActivate();
+                         });
     }
 
     traceStartup("entering app.exec");

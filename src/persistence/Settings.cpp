@@ -59,6 +59,12 @@ bool Settings::showDeveloperTools() const
     return m_settings.value(QStringLiteral("ui/showDeveloperTools"), false).toBool();
 }
 
+bool Settings::compactInterface() const
+{
+    return m_settings.value(QStringLiteral("ui/interfaceMode"), QStringLiteral("Regular")).toString()
+        == QStringLiteral("Compact");
+}
+
 void Settings::setDarkMode(bool value)
 {
     m_settings.setValue(QStringLiteral("appearance/darkMode"), value);
@@ -97,6 +103,12 @@ void Settings::setSmoothMousePlaybackEnabled(bool value)
 void Settings::setShowDeveloperTools(bool value)
 {
     m_settings.setValue(QStringLiteral("ui/showDeveloperTools"), value);
+}
+
+void Settings::setCompactInterface(bool value)
+{
+    m_settings.setValue(QStringLiteral("ui/interfaceMode"),
+                        value ? QStringLiteral("Compact") : QStringLiteral("Regular"));
 }
 
 }

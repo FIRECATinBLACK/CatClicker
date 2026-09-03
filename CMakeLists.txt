@@ -11,6 +11,17 @@ execute_process(
 )
 if(NOT CATCLICKER_GIT_COMMIT)
     set(CATCLICKER_GIT_COMMIT "unknown")
+else()
+    execute_process(
+        COMMAND git status --porcelain --untracked-files=normal
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE CATCLICKER_GIT_STATUS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(CATCLICKER_GIT_STATUS)
+        string(APPEND CATCLICKER_GIT_COMMIT "-dirty")
+    endif()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -28,7 +39,7 @@ file(RELATIVE_PATH CATCLICKER_PERMISSION_HELPER_RELATIVE_PATH
     "/${CMAKE_INSTALL_BINDIR}"
     "/${CMAKE_INSTALL_LIBEXECDIR}/catclicker/setup-input-permissions.sh")
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick DBus Test)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick DBus Network Test)
 find_package(PkgConfig QUIET)
 
 set(CATCLICKER_HAS_PIPEWIRE OFF)
@@ -114,6 +125,7 @@ qt_add_executable(CatClicker
     src/main.cpp
     src/app/ApplicationController.cpp
     src/app/PlaybackLoopController.cpp
+    src/app/SingleInstanceCoordinator.cpp
     src/macro/Macro.cpp
     src/macro/MacroEvent.cpp
     src/macro/MacroRecorder.cpp
@@ -156,10 +168,25 @@ qt_add_qml_module(CatClicker
         qml/Main.qml
         qml/Theme.qml
         qml/components/ActionButton.qml
+        qml/components/CompactIconButton.qml
         qml/components/InfoCard.qml
         qml/components/ShortcutField.qml
+        qml/components/StyledComboBox.qml
         qml/components/StatusPill.qml
         qml/components/ToggleSwitch.qml
+)
+
+set(CATCLICKER_COMPACT_ICONS
+    assets/icons/compact/record.svg
+    assets/icons/compact/play.svg
+    assets/icons/compact/stop.svg
+    assets/icons/compact/open.svg
+    assets/icons/compact/save.svg
+    assets/icons/compact/settings.svg
+)
+qt_add_resources(CatClicker "catclicker_compact_icons"
+    PREFIX "/CatClicker/compact"
+    FILES ${CATCLICKER_COMPACT_ICONS}
 )
 
 set(CATCLICKER_RUNTIME_ICON
@@ -202,6 +229,7 @@ target_link_libraries(CatClicker
         Qt6::Qml
         Qt6::Quick
         Qt6::DBus
+        Qt6::Network
 )
 
 if(PIPEWIRE_FOUND)
@@ -259,6 +287,7 @@ if(BUILD_TESTING)
         src/macro/MacroRecorder.cpp
         src/macro/MacroPlayer.cpp
         src/app/PlaybackLoopController.cpp
+        src/app/SingleInstanceCoordinator.cpp
         src/input/InputSenderBackend.cpp
         src/input/InputCaptureBackend.cpp
         src/input/EvdevDeviceInspector.cpp
@@ -274,6 +303,8 @@ if(BUILD_TESTING)
         src/input/UinputInputSender.cpp
         src/input/VirtualDeviceIdentity.cpp
         src/persistence/MacroSerializer.cpp
+        src/persistence/Settings.cpp
+        src/diagnostics/Diagnostics.cpp
     )
 
     set_target_properties(CatClickerTests PROPERTIES
@@ -291,6 +322,7 @@ if(BUILD_TESTING)
             Qt6::Core
             Qt6::DBus
             Qt6::Gui
+            Qt6::Network
             Qt6::Test
     )
 

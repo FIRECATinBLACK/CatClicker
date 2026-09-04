@@ -2,7 +2,7 @@
 
 <p align="center"><img src="assets/branding/source/icon.png" width="160" alt="CatClicker logo"></p>
 
-CatClicker is a Wayland-native autoclicker and macro recorder built for Pop!_OS and the COSMIC desktop.
+CatClicker is a macro recorder and autoclicker built and tested for Pop!_OS and the COSMIC desktop on Wayland.
 
 ## Interface
 

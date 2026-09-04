@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Clarified user-facing terminology to distinguish Wayland-native operation from libcosmic/COSMIC toolkit integration.
+- Clarified user-facing terminology around COSMIC/Wayland support and protocol usage.
 
 ## 0.1.0 - 2026-09-03
 

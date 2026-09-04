@@ -38,6 +38,31 @@ A full CatClicker workflow demonstration, including macro recording and playback
 
 <img src="assets/readme/catclickerdisplay.gif" alt="CatClicker recording and replaying a macro on COSMIC Wayland" width="100%">
 
+## Download
+
+CatClicker v0.1.0 is an early prerelease available as a prebuilt x86-64 bundle for Pop!_OS 24.04 with COSMIC Wayland.
+
+[Download CatClicker v0.1.0 from GitHub Releases](https://github.com/FIRECATinBLACK/CatClicker/releases/tag/v0.1.0), then:
+
+1. Download `CatClicker-v0.1.0-popos24.04-x86_64.tar.gz`.
+2. Extract the archive.
+3. Open the extracted directory.
+4. Run:
+
+   ```bash
+   ./bin/CatClicker
+   ```
+
+You may also launch the executable graphically after extraction if your file manager permits executing binaries. The bundle is dynamically linked and expects compatible system runtime libraries.
+
+To verify the download with the accompanying `.sha256` file, run:
+
+```bash
+sha256sum -c CatClicker-v0.1.0-popos24.04-x86_64.tar.gz.sha256
+```
+
+Developers and people investigating other platforms can follow the existing [build-from-source instructions](#build-requirements).
+
 ## Status and platform support
 
 CatClicker 0.1.0 is early software. Its primary and currently supported environment is Pop!_OS 24.04 with the COSMIC desktop in a native Wayland session. Other Wayland compositors are not supported yet. Contributions for trustworthy absolute cursor backends on other compositors are welcome. X11 is not a current target.

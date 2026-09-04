@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clarified user-facing terminology to distinguish Wayland-native operation from libcosmic/COSMIC toolkit integration.
+
 ## 0.1.0 - 2026-09-03
 
 - Record physical keyboard input, absolute mouse movement, anchored clicks, drags, holds, and scroll on COSMIC Wayland, then play macros through uinput.

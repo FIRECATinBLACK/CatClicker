@@ -747,7 +747,7 @@ ApplicationWindow {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "COSMIC-first playback path with explicit Wayland backend diagnostics"
+                                    text: "Wayland-native macro recording and playback for Pop!_OS COSMIC"
                                     color: Theme.textSecondary
                                     font.pixelSize: 15
                                     wrapMode: Text.Wrap
